@@ -15,6 +15,9 @@ const agent_factory_1 = require("./agents/core/agent-factory");
 const incident_tools_service_1 = require("./tools/incident-tools.service");
 const incident_service_1 = require("./incident/incident.service");
 const incident_controller_1 = require("./incident/incident.controller");
+const events_gateway_1 = require("./gateway/events.gateway");
+const db_service_1 = require("./memory/db.service");
+const topology_memory_service_1 = require("./memory/topology-memory.service");
 let AppModule = class AppModule {
 };
 exports.AppModule = AppModule;
@@ -27,6 +30,9 @@ exports.AppModule = AppModule = __decorate([
             incident_tools_service_1.IncidentToolsService,
             consensus_engine_1.ConsensusEngine,
             agent_factory_1.AgentFactory,
+            db_service_1.DbService,
+            topology_memory_service_1.TopologyMemoryService,
+            events_gateway_1.EventsGateway,
             incident_service_1.IncidentService,
         ],
     })

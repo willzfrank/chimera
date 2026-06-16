@@ -17,6 +17,7 @@ const qwen_client_1 = require("../qwen/qwen.client");
 const agent_message_bus_service_1 = require("../agents/core/agent-message-bus.service");
 const agent_factory_1 = require("../agents/core/agent-factory");
 const consensus_engine_1 = require("../agents/core/consensus-engine");
+const topology_memory_service_1 = require("../memory/topology-memory.service");
 const meta_orchestrator_agent_1 = require("../agents/orchestrator/meta-orchestrator.agent");
 class CreateIncidentDto {
     title;
@@ -31,12 +32,14 @@ let IncidentService = IncidentService_1 = class IncidentService {
     bus;
     factory;
     consensus;
+    memory;
     logger = new common_1.Logger(IncidentService_1.name);
-    constructor(qwen, bus, factory, consensus) {
+    constructor(qwen, bus, factory, consensus, memory) {
         this.qwen = qwen;
         this.bus = bus;
         this.factory = factory;
         this.consensus = consensus;
+        this.memory = memory;
     }
     async handleIncident(dto) {
         const incident = {
@@ -47,14 +50,8 @@ let IncidentService = IncidentService_1 = class IncidentService {
             metadata: { service: dto.service, ...dto.metadata },
             timestamp: Date.now(),
         };
-        this.logger.log(`Incident received: [${incident.severity}] ${incident.title}`);
-        const orchestrator = new meta_orchestrator_agent_1.MetaOrchestratorAgent(this.qwen, this.bus, this.factory, this.consensus);
-        this.qwen.setCircuitOpenCallback(async () => {
-            await this.bus.emitEvent({
-                type: 'circuit_breaker_opened',
-                payload: { service: 'qwen-api', timestamp: Date.now() },
-            });
-        });
+        this.logger.log(`Incident: [${incident.severity}] ${incident.title}`);
+        const orchestrator = new meta_orchestrator_agent_1.MetaOrchestratorAgent(this.qwen, this.bus, this.factory, this.consensus, this.memory);
         return orchestrator.processIncident(incident);
     }
 };
@@ -64,6 +61,7 @@ exports.IncidentService = IncidentService = IncidentService_1 = __decorate([
     __metadata("design:paramtypes", [qwen_client_1.QwenClient,
         agent_message_bus_service_1.AgentMessageBusService,
         agent_factory_1.AgentFactory,
-        consensus_engine_1.ConsensusEngine])
+        consensus_engine_1.ConsensusEngine,
+        topology_memory_service_1.TopologyMemoryService])
 ], IncidentService);
 //# sourceMappingURL=incident.service.js.map

@@ -11,6 +11,7 @@ import {
 } from '../core/types';
 import { SpecialistAgent } from '../specialists/specialist.agent';
 import { AdversarialAgent } from '../adversarial/adversarial.agent';
+import { TopologyMemoryService } from '../../memory/topology-memory.service';
 
 const RESULT_TIMEOUT_MS = 120_000;
 
@@ -34,22 +35,43 @@ export class MetaOrchestratorAgent extends BaseAgent {
         bus: AgentMessageBusService,
         private readonly factory: AgentFactory,
         private readonly consensusEngine: ConsensusEngine,
+        private readonly memory?: TopologyMemoryService,  // ← ADD
     ) {
         super(ORCHESTRATOR_SPEC, qwen, bus);
         this.emitter.setMaxListeners(0);
     }
 
     async processIncident(incident: Incident): Promise<ConsensusResult> {
+        const startTime = Date.now();
         this.correlationId = incident.id;
-        this.logger.log(`[${incident.severity}] ${incident.title} (${incident.id})`);
+        this.logger.log(`[${incident.severity}] ${incident.title}`);
 
-        // ── 1. Synthesize topology ────────────────────────────────────────────
-        const synthesizer = this.factory.createTopologySynthesizer(this.correlationId);
-        let topology: TopologySpec;
-        try {
-            topology = await synthesizer.synthesize(incident);
-        } finally {
-            synthesizer.terminate();
+        // ── 1. Memory recall (fast path) ────────────────────────────────────
+        let topology: TopologySpec | null = null;
+        let fromMemory = false;
+
+        if (this.memory) {
+            const recalled = await this.memory.recall(incident.description);
+            if (recalled) {
+                topology = recalled;
+                fromMemory = true;
+                this.logger.log(`Memory HIT: class=${topology.incidentClass} — skipping synthesis`);
+            }
+        }
+
+        // ── 2. Synthesize (if no memory hit) ──────────────────────────────────
+        if (!topology) {
+            const synthesizer = this.factory.createTopologySynthesizer(this.correlationId);
+            try {
+                topology = await synthesizer.synthesize(incident);
+            } finally {
+                synthesizer.terminate();
+            }
+        }
+
+        // Guard
+        if (!topology.agents.filter(a => a.role === 'specialist').length) {
+            throw new Error(`Invalid topology: no specialists for ${incident.id}`);
         }
 
         await this.bus.emitEvent({
@@ -57,33 +79,31 @@ export class MetaOrchestratorAgent extends BaseAgent {
             correlationId: this.correlationId,
             payload: {
                 incidentClass: topology.incidentClass,
-                rationale: topology.rationale,
+                rationale: fromMemory ? 'Recalled from memory' : topology.rationale,
+                fromMemory,
                 agentCount: topology.agents.length,
+                // ↓ CRITICAL: frontend needs this to build the graph
+                agents: topology.agents.map(a => ({
+                    name: a.name,
+                    role: a.role,
+                    adversarialPairName: a.adversarialPairName,
+                })),
                 graph: topology.communicationGraph,
             },
         });
 
-        const specialistSpecs = topology.agents.filter((a) => a.role === 'specialist');
-        if (specialistSpecs.length === 0) {
-            throw new Error(`Invalid topology for incident ${incident.id}: no specialist agents generated (class=${topology.incidentClass})`);
-        }
-
-        // ── 2. Spawn society ──────────────────────────────────────────────────
-        const { specialists, adversarials, adversarialToSpecialist } =
-            this.spawnSociety(topology);
-
+        // ── 3. Spawn + dispatch ───────────────────────────────────────────────
+        const { specialists, adversarials, adversarialToSpecialist } = this.spawnSociety(topology);
         this.spawnedSpecialists = specialists;
         this.spawnedAdversarials = adversarials;
 
-        // ── 3. Dispatch specialist tasks (parallel) ───────────────────────────
         await this.dispatchSpecialistTasks(specialists, incident);
         await this.waitFor('specialist', specialists.length);
 
-        // ── 4. Dispatch adversarial challenges (after specialists done) ───────
         await this.dispatchAdversarialChallenges(adversarials, adversarialToSpecialist);
         await this.waitFor('adversarial', adversarials.length);
 
-        // ── 5. Consensus ──────────────────────────────────────────────────────
+        // ── 4. Consensus ─────────────────────────────────────────────────────
         const consensus = await this.consensusEngine.reach(
             incident,
             Array.from(this.specialistResults.values()),
@@ -102,7 +122,6 @@ export class MetaOrchestratorAgent extends BaseAgent {
             },
         });
 
-        // ── 6. Human checkpoint ───────────────────────────────────────────────
         if (consensus.requiresHumanCheckpoint) {
             const checkpoint: HumanCheckpoint = {
                 id: uuidv4(),
@@ -118,10 +137,15 @@ export class MetaOrchestratorAgent extends BaseAgent {
                 correlationId: this.correlationId,
                 payload: checkpoint as unknown as Record<string, unknown>,
             });
-            this.logger.warn(`Human approval required — checkpointId=${checkpoint.id}`);
         }
 
-        // ── 7. Done ───────────────────────────────────────────────────────────
+        // ── 5. Store to memory (if new topology, high confidence) ─────────────
+        const resolutionMs = Date.now() - startTime;
+        if (this.memory && !fromMemory && consensus.confidence > 0.7) {
+            await this.memory.store(incident.description, topology, consensus.confidence, resolutionMs);
+        }
+
+        // ── 6. Done ────────────────────────────────────────────────────────────
         this.terminateSociety();
 
         await this.bus.emitEvent({
@@ -132,10 +156,12 @@ export class MetaOrchestratorAgent extends BaseAgent {
                 decision: consensus.decision,
                 confidence: consensus.confidence,
                 agentsUsed: specialists.length + adversarials.length,
+                resolutionMs,
+                fromMemory,
             },
         });
 
-        this.logger.log(`Resolved: ${incident.id} — confidence=${consensus.confidence.toFixed(2)}`);
+        this.logger.log(`Resolved in ${resolutionMs}ms — confidence=${consensus.confidence.toFixed(2)}`);
         this.terminate();
         return consensus;
     }

@@ -6,6 +6,9 @@ import { AgentFactory } from './agents/core/agent-factory';
 import { IncidentToolsService } from './tools/incident-tools.service';
 import { IncidentService } from './incident/incident.service';
 import { IncidentController } from './incident/incident.controller';
+import { EventsGateway } from './gateway/events.gateway';
+import { DbService } from './memory/db.service';
+import { TopologyMemoryService } from './memory/topology-memory.service';
 
 @Module({
   controllers: [IncidentController],
@@ -15,6 +18,9 @@ import { IncidentController } from './incident/incident.controller';
     IncidentToolsService,
     ConsensusEngine,
     AgentFactory,
+    DbService,
+    TopologyMemoryService,
+    EventsGateway,
     IncidentService,
   ],
 })

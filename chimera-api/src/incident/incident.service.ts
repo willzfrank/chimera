@@ -4,6 +4,7 @@ import { QwenClient } from '../qwen/qwen.client';
 import { AgentMessageBusService } from '../agents/core/agent-message-bus.service';
 import { AgentFactory } from '../agents/core/agent-factory';
 import { ConsensusEngine } from '../agents/core/consensus-engine';
+import { TopologyMemoryService } from '../memory/topology-memory.service';
 import { MetaOrchestratorAgent } from '../agents/orchestrator/meta-orchestrator.agent';
 import { ConsensusResult, Incident } from '../agents/core/types';
 
@@ -24,6 +25,7 @@ export class IncidentService {
         private readonly bus: AgentMessageBusService,
         private readonly factory: AgentFactory,
         private readonly consensus: ConsensusEngine,
+        private readonly memory: TopologyMemoryService,
     ) { }
 
     async handleIncident(dto: CreateIncidentDto): Promise<ConsensusResult> {
@@ -35,20 +37,10 @@ export class IncidentService {
             metadata: { service: dto.service, ...dto.metadata },
             timestamp: Date.now(),
         };
-
-        this.logger.log(`Incident received: [${incident.severity}] ${incident.title}`);
-
+        this.logger.log(`Incident: [${incident.severity}] ${incident.title}`);
         const orchestrator = new MetaOrchestratorAgent(
-            this.qwen, this.bus, this.factory, this.consensus,
+            this.qwen, this.bus, this.factory, this.consensus, this.memory,
         );
-
-        this.qwen.setCircuitOpenCallback(async () => {
-            await this.bus.emitEvent({
-                type: 'circuit_breaker_opened',
-                payload: { service: 'qwen-api', timestamp: Date.now() },
-            });
-        });
-
         return orchestrator.processIncident(incident);
     }
 }
