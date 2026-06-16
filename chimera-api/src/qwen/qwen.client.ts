@@ -26,9 +26,15 @@ export interface QwenCompletionRequest {
 export interface QwenCompletionResponse {
     content: string;
     toolCalls: ToolCall[];
+    rawAssistantMessage: {
+        role: 'assistant';
+        content: string | null;
+        tool_calls?: Array<{ id: string; type: 'function'; function: { name: string; arguments: string } }>;
+    };
     usage: { promptTokens: number; completionTokens: number };
     model: string;
 }
+
 
 const CB_FAILURE_THRESHOLD = 5;
 const CB_RESET_MS = 30_000;
@@ -42,6 +48,7 @@ export class QwenClient {
 
     private cb: CircuitBreakerState = { failures: 0, lastFailure: 0, state: 'closed' };
     private totalUsage = { promptTokens: 0, completionTokens: 0, requests: 0 };
+    private onCircuitOpen?: () => void;
 
     constructor() {
         this.client = new OpenAI({
@@ -49,6 +56,10 @@ export class QwenClient {
             baseURL: 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1',
             timeout: 30_000,
         });
+    }
+
+    setCircuitOpenCallback(fn: () => void): void {
+        this.onCircuitOpen = fn;
     }
 
     async complete(req: QwenCompletionRequest): Promise<QwenCompletionResponse> {
@@ -76,9 +87,16 @@ export class QwenClient {
             const toolCalls: ToolCall[] = (choice.message.tool_calls ?? [])
                 .filter((tc): tc is Extract<typeof tc, { type: 'function' }> => tc.type === 'function')
                 .map((tc) => ({
+                    id: tc.id,                              // ← include ID
                     name: tc.function.name,
                     arguments: JSON.parse(tc.function.arguments),
                 }));
+
+            const rawAssistantMessage = {
+                role: 'assistant' as const,
+                content: choice.message.content ?? null,
+                ...(choice.message.tool_calls?.length ? { tool_calls: choice.message.tool_calls } : {}),
+            };
 
             const usage = {
                 promptTokens: response.usage?.prompt_tokens ?? 0,
@@ -93,8 +111,13 @@ export class QwenClient {
             this.logger.debug(
                 `[${req.model ?? 'qwen-plus'}] ${usage.promptTokens}p+${usage.completionTokens}c tokens | total=${this.totalUsage.promptTokens + this.totalUsage.completionTokens}`,
             );
-
-            return { content: choice.message.content ?? '', toolCalls, usage, model: response.model };
+            return {
+                content: choice.message.content ?? '',
+                toolCalls,
+                rawAssistantMessage: rawAssistantMessage as unknown as { role: 'assistant'; content: string | null; tool_calls?: Array<{ id: string; type: 'function'; function: { name: string; arguments: string } }> },
+                usage: { promptTokens: response.usage?.prompt_tokens ?? 0, completionTokens: response.usage?.completion_tokens ?? 0 },
+                model: response.model,
+            };
         } catch (err) {
             this.onFailure();
             throw err;
@@ -128,7 +151,8 @@ export class QwenClient {
         this.cb.lastFailure = Date.now();
         if (this.cb.failures >= CB_FAILURE_THRESHOLD) {
             this.cb.state = 'open';
-            this.logger.error(`Circuit breaker → OPEN after ${this.cb.failures} consecutive failures`);
+            this.logger.error(`Circuit breaker OPEN after ${this.cb.failures} failures`);
+            this.onCircuitOpen?.();
         }
     }
 

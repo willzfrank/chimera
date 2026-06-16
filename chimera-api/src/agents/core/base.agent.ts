@@ -1,8 +1,13 @@
 import { Logger } from '@nestjs/common';
 import { v4 as uuidv4 } from 'uuid';
-import { QwenClient, QwenMessage } from '../../qwen/qwen.client';
+import { QwenClient } from '../../qwen/qwen.client';
 import { AgentMessageBusService } from './agent-message-bus.service';
 import { AgentMessage, AgentResponse, AgentRole, AgentSpec, AgentStatus, AgentTool } from './types';
+
+type HistoryEntry =
+    | { role: 'user'; content: string }
+    | { role: 'assistant'; content: string | null; tool_calls?: any[] }
+    | { role: 'tool'; content: string; tool_call_id: string };
 
 export type ToolExecutor = (name: string, args: Record<string, unknown>) => Promise<unknown>;
 
@@ -19,7 +24,7 @@ export abstract class BaseAgent {
     status: AgentStatus = 'idle';
 
     protected correlationId: string;
-    private history: QwenMessage[] = [];
+    private history: HistoryEntry[] = [];
     private totalTokens = 0;
 
     constructor(
@@ -73,14 +78,13 @@ export abstract class BaseAgent {
         while (iterations < MAX_TOOL_ITERATIONS) {
             const result = await this.qwen.complete({
                 systemPrompt: this.spec.systemPrompt,
-                messages: this.history,
+                messages: this.history as any,
                 tools: tools ?? this.spec.tools,
                 model: this.role === 'meta-orchestrator' ? 'qwen-max' : 'qwen-plus',
             });
 
             this.totalTokens += result.usage.promptTokens + result.usage.completionTokens;
 
-            // Done — no tool calls
             if (!result.toolCalls.length) {
                 finalContent = result.content;
                 this.history.push({ role: 'assistant', content: result.content });
@@ -88,36 +92,35 @@ export abstract class BaseAgent {
             }
 
             if (!toolExecutor) {
-                this.logger.warn('Tool calls returned but no executor provided — stopping loop');
                 finalContent = result.content;
                 break;
             }
 
-            this.history.push({ role: 'assistant', content: result.content || '[executing tools]' });
+            // Push raw assistant message — preserves tool_calls array with IDs
+            this.history.push(result.rawAssistantMessage);
 
-            // Execute all tool calls concurrently
-            const results = await Promise.allSettled(
+            const toolResults = await Promise.allSettled(
                 result.toolCalls.map(async (tc) => {
                     this.logger.debug(`Tool: ${tc.name}(${JSON.stringify(tc.arguments).slice(0, 120)})`);
-
                     await this.bus.emitEvent({
                         type: 'tool_executed',
                         correlationId: this.correlationId,
-                        payload: { agentId: this.agentId, tool: tc.name, args: tc.arguments },
+                        payload: { agentId: this.agentId, tool: tc.name },
                     });
-
-                    return toolExecutor(tc.name, tc.arguments);
+                    return { id: tc.id, output: await toolExecutor(tc.name, tc.arguments) };
                 }),
             );
 
-            // Feed tool results back
-            for (const r of results) {
-                const content =
-                    r.status === 'fulfilled'
-                        ? JSON.stringify(r.value)
-                        : JSON.stringify({ error: (r as PromiseRejectedResult).reason?.message ?? 'Tool failed' });
-
-                this.history.push({ role: 'tool', content });
+            // Each tool result MUST carry the matching tool_call_id
+            for (const r of toolResults) {
+                if (r.status === 'fulfilled') {
+                    this.history.push({ role: 'tool', content: JSON.stringify(r.value.output), tool_call_id: r.value.id });
+                } else {
+                    // Even failures need a valid tool_call_id to not break the conversation
+                    const idx = toolResults.indexOf(r);
+                    const id = result.toolCalls[idx]?.id ?? `fallback_${idx}`;
+                    this.history.push({ role: 'tool', content: JSON.stringify({ error: r.reason?.message ?? 'Tool failed' }), tool_call_id: id });
+                }
             }
 
             iterations++;
@@ -173,16 +176,16 @@ export abstract class BaseAgent {
      * Always keeps the first user message (incident context) + last 12 entries.
      */
     private pruneHistory(): void {
-        const charCount = this.history.reduce((acc, m) => acc + m.content.length, 0);
+        const charCount = this.history.reduce((acc, m) => acc + (m.content?.length ?? 0), 0);
         if (charCount <= TOKEN_PRUNE_THRESHOLD * 4) return;
 
         const anchor = this.history[0];
         const recent = this.history.slice(-12);
         const pruned = this.history.length - recent.length - 1;
-
         this.history = anchor ? [anchor, ...recent] : recent;
-        this.logger.warn(`Pruned ${pruned} history entries (context budget)`);
+        this.logger.warn(`Pruned ${pruned} history entries`);
     }
+
 
     private estimateConfidence(content: string): number {
         const lower = content.toLowerCase();

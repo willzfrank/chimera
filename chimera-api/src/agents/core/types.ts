@@ -30,7 +30,7 @@ export interface AgentSpec {
   name: string;
   systemPrompt: string;
   tools: AgentTool[];
-  adversarialPairId?: string;
+  adversarialPairName?: string; // name, resolved to ID at spawn time
 }
 
 export interface TopologySpec {
@@ -57,6 +57,7 @@ export interface AgentResponse {
 }
 
 export interface ToolCall {
+  id: string; 
   name: string;
   arguments: Record<string, unknown>;
 }
