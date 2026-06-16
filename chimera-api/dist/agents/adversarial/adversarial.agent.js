@@ -37,6 +37,16 @@ class AdversarialAgent extends base_agent_1.BaseAgent {
             confidence: response.confidence,
             targetAgentId: this.targetAgentId,
         });
+        await this.bus.emitEvent({
+            type: 'agent_done',
+            correlationId: this.correlationId,
+            payload: {
+                agentId: this.agentId,
+                agentName: this.name,
+                confidence: response.confidence,
+                role: this.role,
+            },
+        });
         this.logger.log(`Challenge done — confidence=${response.confidence.toFixed(2)}`);
     }
     async handleMessage(msg) {

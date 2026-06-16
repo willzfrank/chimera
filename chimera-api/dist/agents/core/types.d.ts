@@ -68,7 +68,7 @@ export interface HumanCheckpoint {
     resolvedAt?: number;
     approved?: boolean;
 }
-export type ChimeraEventType = 'agent_spawned' | 'agent_thinking' | 'agent_message' | 'agent_terminated' | 'topology_built' | 'consensus_reached' | 'human_checkpoint' | 'incident_resolved' | 'tool_executed' | 'circuit_breaker_opened' | 'message_dead_lettered';
+export type ChimeraEventType = 'agent_spawned' | 'agent_thinking' | 'agent_done' | 'agent_message' | 'agent_terminated' | 'topology_built' | 'consensus_reached' | 'human_checkpoint' | 'incident_resolved' | 'tool_executed' | 'circuit_breaker_opened' | 'message_dead_lettered';
 export interface ChimeraEvent {
     type: ChimeraEventType;
     payload: Record<string, unknown>;

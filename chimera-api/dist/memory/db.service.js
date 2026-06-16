@@ -34,6 +34,24 @@ let DbService = DbService_1 = class DbService {
       )
     `);
         await this.pool.query(`
+      CREATE TABLE IF NOT EXISTS incidents (
+        id              UUID PRIMARY KEY,
+        title           TEXT NOT NULL,
+        severity        TEXT NOT NULL,
+        service         TEXT NOT NULL,
+        incident_class  TEXT,
+        from_memory     BOOLEAN DEFAULT FALSE,
+        agents_used     INTEGER,
+        confidence      FLOAT,
+        resolution_ms   INTEGER,
+        decision        TEXT,
+        dissents        INTEGER DEFAULT 0,
+        tokens_used     INTEGER DEFAULT 0,
+        created_at      TIMESTAMPTZ DEFAULT NOW(),
+        resolved_at     TIMESTAMPTZ
+      )
+    `);
+        await this.pool.query(`
       CREATE INDEX IF NOT EXISTS topology_memories_vec_idx
       ON topology_memories USING ivfflat (embedding vector_cosine_ops)
       WITH (lists = 100)

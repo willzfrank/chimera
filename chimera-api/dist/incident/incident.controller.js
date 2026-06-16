@@ -22,11 +22,23 @@ let IncidentController = class IncidentController {
     }
     async submit(dto) {
         this.incidentService.handleIncident(dto).catch(console.error);
-        return { status: 'accepted', message: 'Subscribe to WebSocket /chimera:events for live updates' };
+        return { status: 'accepted' };
     }
     async submitSync(dto) {
         const result = await this.incidentService.handleIncident(dto);
         return { status: 'resolved', result };
+    }
+    resolveCheckpoint(id, body) {
+        this.incidentService.resolveCheckpoint(id, body.approved);
+        return { status: 'ok', id, approved: body.approved };
+    }
+    health() {
+        return {
+            status: 'ok',
+            service: 'chimera-api',
+            timestamp: new Date().toISOString(),
+            alibaba_cloud: true,
+        };
     }
 };
 exports.IncidentController = IncidentController;
@@ -45,6 +57,20 @@ __decorate([
     __metadata("design:paramtypes", [incident_service_1.CreateIncidentDto]),
     __metadata("design:returntype", Promise)
 ], IncidentController.prototype, "submitSync", null);
+__decorate([
+    (0, common_1.Post)('checkpoints/:id'),
+    __param(0, (0, common_1.Param)('id')),
+    __param(1, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, Object]),
+    __metadata("design:returntype", void 0)
+], IncidentController.prototype, "resolveCheckpoint", null);
+__decorate([
+    (0, common_1.Get)('health'),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", []),
+    __metadata("design:returntype", void 0)
+], IncidentController.prototype, "health", null);
 exports.IncidentController = IncidentController = __decorate([
     (0, common_1.Controller)('incidents'),
     __metadata("design:paramtypes", [incident_service_1.IncidentService])

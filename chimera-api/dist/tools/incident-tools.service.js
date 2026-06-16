@@ -5,9 +5,13 @@ var __decorate = (this && this.__decorate) || function (decorators, target, key,
     else for (var i = decorators.length - 1; i >= 0; i--) if (d = decorators[i]) r = (c < 3 ? d(r) : c > 3 ? d(target, key, r) : d(target, key)) || r;
     return c > 3 && r && Object.defineProperty(target, key, r), r;
 };
+var __metadata = (this && this.__metadata) || function (k, v) {
+    if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.IncidentToolsService = exports.ALL_TOOLS = void 0;
 const common_1 = require("@nestjs/common");
+const db_service_1 = require("../memory/db.service");
 exports.ALL_TOOLS = {
     query_logs: {
         name: 'query_logs',
@@ -104,6 +108,10 @@ exports.ALL_TOOLS = {
     },
 };
 let IncidentToolsService = class IncidentToolsService {
+    db;
+    constructor(db) {
+        this.db = db;
+    }
     getByNames(names) {
         return names.map((n) => exports.ALL_TOOLS[n]).filter(Boolean);
     }
@@ -112,8 +120,8 @@ let IncidentToolsService = class IncidentToolsService {
             case 'query_logs': return this.mockLogs(args);
             case 'get_service_metrics': return this.mockMetrics(args);
             case 'check_recent_deployments': return this.mockDeployments(args);
-            case 'run_db_query': return this.mockDbQuery(args);
-            case 'check_service_health': return this.mockHealth(args);
+            case 'run_db_query': return this.queryDb(args);
+            case 'check_service_health': return this.checkHealth(args);
             case 'search_runbooks': return this.mockRunbooks(args);
             case 'get_dependency_graph': return this.mockDeps(args);
             default: throw new Error(`Unknown tool: ${toolName}`);
@@ -152,20 +160,45 @@ let IncidentToolsService = class IncidentToolsService {
             ],
         };
     }
-    mockDbQuery(a) {
-        return {
-            rows: [
-                { count: '100', state: 'active', wait_event_type: 'Lock', wait_event: 'relation' },
-                { count: '47', state: 'idle in transaction', wait_event_type: null, wait_event: null },
-            ],
-            query: a.query, executionMs: 12,
-        };
+    async queryDb(args) {
+        const query = (args.query ?? '').trim().toUpperCase();
+        if (!query.startsWith('SELECT') && !query.startsWith('EXPLAIN')) {
+            return { error: 'Only SELECT queries permitted', query: args.query };
+        }
+        try {
+            const result = await this.db.pool.query({
+                text: args.query,
+                rowMode: 'array',
+            });
+            return {
+                rows: result.rows.slice(0, 20),
+                fields: result.fields.map(f => f.name),
+                rowCount: result.rowCount,
+                executionMs: 0,
+            };
+        }
+        catch (err) {
+            return { error: err.message, query: args.query };
+        }
     }
-    mockHealth(a) {
-        return {
-            service: a.service, status: 'degraded', statusCode: 503, responseMs: 4782,
-            checks: { database: 'unhealthy', cache: 'healthy', external_apis: 'healthy' },
-        };
+    async checkHealth(args) {
+        const service = args.service;
+        const endpoint = args.endpoint ?? '/health';
+        const url = `http://localhost:3000${endpoint}`;
+        try {
+            const start = Date.now();
+            const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
+            const responseMs = Date.now() - start;
+            let body = {};
+            try {
+                body = await res.json();
+            }
+            catch { }
+            return { service, status: res.ok ? 'healthy' : 'degraded', statusCode: res.status, responseMs, body };
+        }
+        catch (err) {
+            return { service, status: 'unreachable', error: err.message };
+        }
     }
     mockRunbooks(a) {
         return {
@@ -186,6 +219,7 @@ let IncidentToolsService = class IncidentToolsService {
 };
 exports.IncidentToolsService = IncidentToolsService;
 exports.IncidentToolsService = IncidentToolsService = __decorate([
-    (0, common_1.Injectable)()
+    (0, common_1.Injectable)(),
+    __metadata("design:paramtypes", [db_service_1.DbService])
 ], IncidentToolsService);
 //# sourceMappingURL=incident-tools.service.js.map

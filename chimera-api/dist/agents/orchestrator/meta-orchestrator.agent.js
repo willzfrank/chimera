@@ -15,17 +15,21 @@ class MetaOrchestratorAgent extends base_agent_1.BaseAgent {
     factory;
     consensusEngine;
     memory;
+    analytics;
+    slack;
     emitter = new events_1.EventEmitter();
     specialistResults = new Map();
     adversarialResults = new Map();
     specialistTaskMap = new Map();
     spawnedSpecialists = [];
     spawnedAdversarials = [];
-    constructor(qwen, bus, factory, consensusEngine, memory) {
+    constructor(qwen, bus, factory, consensusEngine, memory, analytics, slack) {
         super(ORCHESTRATOR_SPEC, qwen, bus);
         this.factory = factory;
         this.consensusEngine = consensusEngine;
         this.memory = memory;
+        this.analytics = analytics;
+        this.slack = slack;
         this.emitter.setMaxListeners(0);
     }
     async processIncident(incident) {
@@ -110,6 +114,13 @@ class MetaOrchestratorAgent extends base_agent_1.BaseAgent {
             await this.memory.store(incident.description, topology, consensus.confidence, resolutionMs);
         }
         this.terminateSociety();
+        if (this.analytics) {
+            const tokensUsed = this.qwen.getMetrics().promptTokens + this.qwen.getMetrics().completionTokens;
+            await this.analytics.recordIncident(incident, consensus, topology.incidentClass, fromMemory, specialists.length + adversarials.length, resolutionMs, tokensUsed).catch(err => this.logger.warn(`Analytics record failed: ${err}`));
+        }
+        if (this.slack) {
+            await this.slack.notifyResolution(incident, consensus, resolutionMs, fromMemory).catch(() => { });
+        }
         await this.bus.emitEvent({
             type: 'incident_resolved',
             correlationId: this.correlationId,

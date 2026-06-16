@@ -2,74 +2,76 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Node, Edge } from 'reactflow';
 import { getSocket } from '../lib/socket';
-import { AgentRole, AgentStatus, ChimeraEvent, ConsensusResult, IncidentFormData, TopologyInfo } from '../lib/types';
+import {
+    AgentRole, AgentStatus, ChimeraEvent,
+    ConsensusResult, HumanCheckpoint, IncidentFormData, TopologyInfo,
+} from '../lib/types';
 
-export type IncidentStatus = 'idle' | 'synthesizing' | 'running' | 'consensus' | 'awaiting_human' | 'resolved';
+export type IncidentStatus =
+    | 'idle' | 'synthesizing' | 'running'
+    | 'consensus' | 'awaiting_human' | 'resolved';
 
-interface AgentLayoutEntry {
-    x: number; y: number; role: AgentRole; adversarialPairName?: string;
+function splitCamel(name: string): string {
+    return name.replace(/([a-z])([A-Z])/g, '$1 $2');
 }
 
-function buildGraphFromAgents(agents: { name: string; role: AgentRole; adversarialPairName?: string }[]): {
-    nodes: Node[]; edges: Edge[]; layoutMap: Map<string, AgentLayoutEntry>;
-} {
-    const W = 800;
+interface AgentInfo { name: string; role: AgentRole; adversarialPairName?: string }
+
+function buildGraph(agents: AgentInfo[]): { nodes: Node[]; edges: Edge[] } {
+    const W = 820;
     const nodes: Node[] = [];
     const edges: Edge[] = [];
-    const layoutMap = new Map<string, AgentLayoutEntry>();
 
     const specialists = agents.filter(a => a.role === 'specialist');
     const adversarials = agents.filter(a => a.role === 'adversarial');
 
     // Orchestrator
-    layoutMap.set('MetaOrchestrator', { x: W / 2 - 80, y: 30, role: 'meta-orchestrator' });
     nodes.push({
         id: 'MetaOrchestrator', type: 'agentNode',
-        position: { x: W / 2 - 80, y: 30 },
+        position: { x: W / 2 - 90, y: 20 },
         data: { name: 'MetaOrchestrator', role: 'meta-orchestrator', status: 'idle' },
     });
 
-    // Specialists
     specialists.forEach((agent, i) => {
-        const x = (W / (specialists.length + 1)) * (i + 1) - 80;
-        layoutMap.set(agent.name, { x, y: 210, role: 'specialist' });
+        const x = (W / (specialists.length + 1)) * (i + 1) - 90;
         nodes.push({
             id: agent.name, type: 'agentNode',
-            position: { x, y: 210 },
+            position: { x, y: 200 },
             data: { name: agent.name, role: 'specialist', status: 'spawning' },
         });
         edges.push({
-            id: `MetaOrchestrator-${agent.name}`,
+            id: `orch-${agent.name}`,
             source: 'MetaOrchestrator', target: agent.name,
-            animated: false, type: 'smoothstep',
+            type: 'smoothstep', animated: false,
             style: { stroke: '#3b82f6', strokeWidth: 2 },
         });
     });
 
-    // Adversarials
     adversarials.forEach((agent) => {
-        const pairedIdx = specialists.findIndex(s => s.name === agent.adversarialPairName);
-        const x = pairedIdx >= 0 ? (W / (specialists.length + 1)) * (pairedIdx + 1) - 60 : W / 2 - 60;
-        layoutMap.set(agent.name, { x, y: 400, role: 'adversarial', adversarialPairName: agent.adversarialPairName });
+        const pairIdx = specialists.findIndex(s => s.name === agent.adversarialPairName);
+        const x = pairIdx >= 0
+            ? (W / (specialists.length + 1)) * (pairIdx + 1) - 70
+            : W / 2 - 70;
         nodes.push({
             id: agent.name, type: 'agentNode',
-            position: { x, y: 400 },
+            position: { x, y: 410 },
             data: { name: agent.name, role: 'adversarial', status: 'spawning' },
         });
         if (agent.adversarialPairName) {
             edges.push({
-                id: `${agent.name}-${agent.adversarialPairName}`,
+                id: `adv-${agent.name}`,
                 source: agent.name, target: agent.adversarialPairName,
-                animated: false, type: 'smoothstep',
-                style: { stroke: '#f43f5e', strokeWidth: 2, strokeDasharray: '5 3' },
+                type: 'smoothstep', animated: false,
+                style: { stroke: '#f43f5e', strokeWidth: 1.5, strokeDasharray: '6 3' },
                 label: '⚔ challenges',
                 labelStyle: { fill: '#f43f5e', fontSize: 10, fontFamily: 'monospace' },
-                labelBgStyle: { fill: '#0a0f1e' },
+                labelBgStyle: { fill: '#08020a', fillOpacity: 0.9 },
+                labelBgPadding: [4, 2] as [number, number],
             });
         }
     });
 
-    return { nodes, edges, layoutMap };
+    return { nodes, edges };
 }
 
 export function useChimera() {
@@ -79,74 +81,97 @@ export function useChimera() {
     const [status, setStatus] = useState<IncidentStatus>('idle');
     const [topology, setTopology] = useState<TopologyInfo | null>(null);
     const [consensus, setConsensus] = useState<ConsensusResult | null>(null);
+    const [checkpoint, setCheckpoint] = useState<HumanCheckpoint | null>(null);
     const [incidentTitle, setIncidentTitle] = useState('');
+    const [resolutionMs, setResolutionMs] = useState<number | null>(null);
+    const [fitTrigger, setFitTrigger] = useState(0);
 
     const idToName = useRef<Map<string, string>>(new Map());
 
-    const updateNode = useCallback((name: string, patch: Record<string, any>) => {
-        setNodes(prev => prev.map(n =>
-            n.id === name ? { ...n, data: { ...n.data, ...patch } } : n,
-        ));
+    const patchNode = useCallback((name: string, patch: Record<string, any>) => {
+        setNodes(prev =>
+            prev.map(n => n.id === name ? { ...n, data: { ...n.data, ...patch } } : n),
+        );
     }, []);
 
-    const flashEdge = useCallback((edgeId: string) => {
-        setEdges(prev => prev.map(e => e.id === edgeId ? { ...e, animated: true } : e));
-        setTimeout(() => {
-            setEdges(prev => prev.map(e => e.id === edgeId ? { ...e, animated: false } : e));
-        }, 1500);
+    const flashEdge = useCallback((id: string) => {
+        setEdges(prev => prev.map(e => e.id === id ? { ...e, animated: true } : e));
+        setTimeout(() => setEdges(prev => prev.map(e => e.id === id ? { ...e, animated: false } : e)), 1800);
     }, []);
 
     const handleEvent = useCallback((event: ChimeraEvent) => {
-        setEvents(prev => [event, ...prev].slice(0, 150));
+        setEvents(prev => [event, ...prev].slice(0, 200));
         const { type, payload } = event;
 
         switch (type) {
             case 'topology_built': {
-                const agents = (payload.agents ?? []) as TopologyInfo['agents'];
-                setTopology({ incidentClass: payload.incidentClass, rationale: payload.rationale, fromMemory: payload.fromMemory, agents });
+                const agents = (payload.agents ?? []) as AgentInfo[];
+                setTopology({
+                    incidentClass: payload.incidentClass,
+                    rationale: payload.rationale,
+                    fromMemory: payload.fromMemory,
+                    agents,
+                });
+                setConsensus(null);
+                setCheckpoint(null);
+                setResolutionMs(null);
                 setStatus('synthesizing');
-                const { nodes: n, edges: e } = buildGraphFromAgents(agents);
+                const { nodes: n, edges: e } = buildGraph(agents);
                 setNodes(n);
                 setEdges(e);
+                setFitTrigger(t => t + 1);
                 break;
             }
+
             case 'agent_spawned': {
                 const { agentId, name } = payload;
                 idToName.current.set(agentId as string, name as string);
-                updateNode(name as string, { agentId, status: 'idle' });
+                patchNode(name as string, { agentId, status: 'idle' });
                 setStatus('running');
                 break;
             }
+
             case 'agent_thinking': {
-                const name = idToName.current.get(payload.agentId as string);
-                if (name) updateNode(name, { status: 'thinking' });
+                const name = idToName.current.get(payload.agentId as string) ?? payload.agentName as string;
+                if (name) patchNode(name, { status: 'thinking' });
                 break;
             }
+
             case 'tool_executed': {
                 const name = idToName.current.get(payload.agentId as string);
-                if (name) setNodes(prev => prev.map(n =>
-                    n.id === name
-                        ? { ...n, data: { ...n.data, toolsUsed: [...new Set([...(n.data.toolsUsed ?? []), payload.tool])] } }
-                        : n,
-                ));
+                if (name) {
+                    setNodes(prev => prev.map(n =>
+                        n.id === name
+                            ? { ...n, data: { ...n.data, toolsUsed: [...new Set([...(n.data.toolsUsed ?? []), payload.tool])] } }
+                            : n,
+                    ));
+                }
                 break;
             }
+
+            case 'agent_done': {
+                const name = idToName.current.get(payload.agentId as string) ?? payload.agentName as string;
+                if (name) patchNode(name, { status: 'done', confidence: payload.confidence });
+                break;
+            }
+
             case 'agent_message': {
                 const fromName = idToName.current.get(payload.from as string);
                 const toName = idToName.current.get(payload.to as string);
                 if (fromName && toName) {
-                    flashEdge(`${fromName}-${toName}`);
-                    flashEdge(`${toName}-${fromName}`);
-                    flashEdge(`MetaOrchestrator-${toName}`);
-                    flashEdge(`MetaOrchestrator-${fromName}`);
+                    flashEdge(`orch-${toName}`);
+                    flashEdge(`orch-${fromName}`);
+                    flashEdge(`adv-${fromName}`);
                 }
                 break;
             }
+
             case 'agent_terminated': {
-                const name = idToName.current.get(payload.agentId as string);
-                if (name) updateNode(name, { status: 'terminated' });
+                const name = idToName.current.get(payload.agentId as string) ?? payload.agentName as string;
+                if (name) patchNode(name, { status: 'terminated' });
                 break;
             }
+
             case 'consensus_reached': {
                 setStatus('consensus');
                 setConsensus({
@@ -158,10 +183,26 @@ export function useChimera() {
                 });
                 break;
             }
-            case 'human_checkpoint': setStatus('awaiting_human'); break;
-            case 'incident_resolved': setStatus('resolved'); break;
+
+            case 'human_checkpoint': {
+                setStatus('awaiting_human');
+                setCheckpoint({
+                    id: payload.id as string,
+                    summary: payload.summary as string,
+                    proposedAction: payload.proposedAction as string,
+                    agentConsensus: payload.agentConsensus as ConsensusResult,
+                    createdAt: payload.createdAt as number,
+                });
+                break;
+            }
+
+            case 'incident_resolved': {
+                setStatus('resolved');
+                setResolutionMs(payload.resolutionMs as number);
+                break;
+            }
         }
-    }, [updateNode, flashEdge]);
+    }, [patchNode, flashEdge]);
 
     useEffect(() => {
         const socket = getSocket();
@@ -171,8 +212,8 @@ export function useChimera() {
 
     const submitIncident = useCallback(async (data: IncidentFormData) => {
         setNodes([]); setEdges([]); setEvents([]);
-        setTopology(null); setConsensus(null);
-        setStatus('synthesizing');
+        setTopology(null); setConsensus(null); setCheckpoint(null);
+        setResolutionMs(null); setStatus('synthesizing');
         setIncidentTitle(data.title);
         idToName.current.clear();
 
@@ -183,5 +224,20 @@ export function useChimera() {
         }).catch(console.error);
     }, []);
 
-    return { nodes, edges, events, status, topology, consensus, incidentTitle, submitIncident };
+    const resolveCheckpoint = useCallback(async (approved: boolean) => {
+        if (!checkpoint) return;
+        await fetch(`http://localhost:3000/incidents/checkpoints/${checkpoint.id}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ approved }),
+        }).catch(console.error);
+        setCheckpoint(null);
+        setStatus(approved ? 'resolved' : 'idle');
+    }, [checkpoint]);
+
+    return {
+        nodes, edges, events, status, topology, consensus,
+        checkpoint, incidentTitle, resolutionMs, fitTrigger,
+        submitIncident, resolveCheckpoint,
+    };
 }

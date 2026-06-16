@@ -66,7 +66,7 @@ export abstract class BaseAgent {
         await this.bus.emitEvent({
             type: 'agent_thinking',
             correlationId: this.correlationId,
-            payload: { agentId: this.agentId, inputPreview: input.slice(0, 200) },
+            payload: { agentId: this.agentId, agentName: this.name, inputPreview: input.slice(0, 200) },
         });
 
         this.history.push({ role: 'user', content: input });
@@ -166,7 +166,7 @@ export abstract class BaseAgent {
         this.bus.emitEvent({
             type: 'agent_terminated',
             correlationId: this.correlationId,
-            payload: { agentId: this.agentId, totalTokens: this.totalTokens },
+            payload: { agentId: this.agentId, agentName: this.name, totalTokens: this.totalTokens },
         });
         this.logger.log(`Terminated — totalTokens=${this.totalTokens}`);
     }

@@ -12,6 +12,8 @@ import {
 import { SpecialistAgent } from '../specialists/specialist.agent';
 import { AdversarialAgent } from '../adversarial/adversarial.agent';
 import { TopologyMemoryService } from '../../memory/topology-memory.service';
+import { AnalyticsService } from '../../analytics/analytics.service';
+import { SlackService } from '../../notifications/slack.service';
 
 const RESULT_TIMEOUT_MS = 120_000;
 
@@ -35,7 +37,9 @@ export class MetaOrchestratorAgent extends BaseAgent {
         bus: AgentMessageBusService,
         private readonly factory: AgentFactory,
         private readonly consensusEngine: ConsensusEngine,
-        private readonly memory?: TopologyMemoryService,  // ← ADD
+        private readonly memory?: TopologyMemoryService,
+        private readonly analytics?: AnalyticsService,
+        private readonly slack?: SlackService,
     ) {
         super(ORCHESTRATOR_SPEC, qwen, bus);
         this.emitter.setMaxListeners(0);
@@ -147,6 +151,19 @@ export class MetaOrchestratorAgent extends BaseAgent {
 
         // ── 6. Done ────────────────────────────────────────────────────────────
         this.terminateSociety();
+
+        if (this.analytics) {
+            const tokensUsed = this.qwen.getMetrics().promptTokens + this.qwen.getMetrics().completionTokens;
+            await this.analytics.recordIncident(
+                incident, consensus, topology.incidentClass,
+                fromMemory, specialists.length + adversarials.length,
+                resolutionMs, tokensUsed,
+            ).catch(err => this.logger.warn(`Analytics record failed: ${err}`));
+        }
+
+        if (this.slack) {
+            await this.slack.notifyResolution(incident, consensus, resolutionMs, fromMemory).catch(() => {});
+        }
 
         await this.bus.emitEvent({
             type: 'incident_resolved',

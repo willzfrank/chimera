@@ -1,4 +1,10 @@
-export type AgentRole = 'meta-orchestrator' | 'topology-synthesizer' | 'specialist' | 'adversarial' | 'consensus';
+export type AgentRole =
+    | 'meta-orchestrator'
+    | 'topology-synthesizer'
+    | 'specialist'
+    | 'adversarial'
+    | 'consensus';
+
 export type AgentStatus = 'spawning' | 'idle' | 'thinking' | 'done' | 'terminated';
 
 export interface ChimeraEvent {
@@ -21,6 +27,14 @@ export interface ConsensusResult {
     confidence: number;
     dissents: { agentId: string; reason: string }[];
     requiresHumanCheckpoint: boolean;
+}
+
+export interface HumanCheckpoint {
+    id: string;
+    summary: string;
+    proposedAction: string;
+    agentConsensus: ConsensusResult;
+    createdAt: number;
 }
 
 export interface IncidentFormData {

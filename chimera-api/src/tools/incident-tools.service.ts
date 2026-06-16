@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { AgentTool } from '../agents/core/types';
+import { DbService } from '../memory/db.service';
 
 export const ALL_TOOLS: Record<string, AgentTool> = {
     query_logs: {
@@ -99,6 +100,8 @@ export const ALL_TOOLS: Record<string, AgentTool> = {
 
 @Injectable()
 export class IncidentToolsService {
+    constructor(private readonly db: DbService) {}
+
     getByNames(names: string[]): AgentTool[] {
         return names.map((n) => ALL_TOOLS[n]).filter(Boolean);
     }
@@ -109,8 +112,8 @@ export class IncidentToolsService {
             case 'query_logs': return this.mockLogs(args);
             case 'get_service_metrics': return this.mockMetrics(args);
             case 'check_recent_deployments': return this.mockDeployments(args);
-            case 'run_db_query': return this.mockDbQuery(args);
-            case 'check_service_health': return this.mockHealth(args);
+            case 'run_db_query': return this.queryDb(args);
+            case 'check_service_health': return this.checkHealth(args);
             case 'search_runbooks': return this.mockRunbooks(args);
             case 'get_dependency_graph': return this.mockDeps(args);
             default: throw new Error(`Unknown tool: ${toolName}`);
@@ -153,21 +156,44 @@ export class IncidentToolsService {
         };
     }
 
-    private mockDbQuery(a: any) {
-        return {
-            rows: [
-                { count: '100', state: 'active', wait_event_type: 'Lock', wait_event: 'relation' },
-                { count: '47', state: 'idle in transaction', wait_event_type: null, wait_event: null },
-            ],
-            query: a.query, executionMs: 12,
-        };
+    private async queryDb(args: any): Promise<unknown> {
+        const query = (args.query as string ?? '').trim().toUpperCase();
+
+        if (!query.startsWith('SELECT') && !query.startsWith('EXPLAIN')) {
+            return { error: 'Only SELECT queries permitted', query: args.query };
+        }
+
+        try {
+            const result = await this.db.pool.query({
+                text: args.query as string,
+                rowMode: 'array',
+            });
+            return {
+                rows: result.rows.slice(0, 20),
+                fields: result.fields.map(f => f.name),
+                rowCount: result.rowCount,
+                executionMs: 0,
+            };
+        } catch (err: any) {
+            return { error: err.message, query: args.query };
+        }
     }
 
-    private mockHealth(a: any) {
-        return {
-            service: a.service, status: 'degraded', statusCode: 503, responseMs: 4782,
-            checks: { database: 'unhealthy', cache: 'healthy', external_apis: 'healthy' },
-        };
+    private async checkHealth(args: any): Promise<unknown> {
+        const service = args.service as string;
+        const endpoint = (args.endpoint as string) ?? '/health';
+        const url = `http://localhost:3000${endpoint}`;
+
+        try {
+            const start = Date.now();
+            const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
+            const responseMs = Date.now() - start;
+            let body: any = {};
+            try { body = await res.json(); } catch { }
+            return { service, status: res.ok ? 'healthy' : 'degraded', statusCode: res.status, responseMs, body };
+        } catch (err: any) {
+            return { service, status: 'unreachable', error: err.message };
+        }
     }
 
     private mockRunbooks(a: any) {

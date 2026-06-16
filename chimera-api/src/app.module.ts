@@ -9,17 +9,23 @@ import { IncidentController } from './incident/incident.controller';
 import { EventsGateway } from './gateway/events.gateway';
 import { DbService } from './memory/db.service';
 import { TopologyMemoryService } from './memory/topology-memory.service';
+import { AnalyticsService } from './analytics/analytics.service';
+import { AnalyticsController } from './analytics/analytics.controller';
+import { WebhookController } from './webhooks/webhook.controller';
+import { SlackService } from './notifications/slack.service';
 
 @Module({
-  controllers: [IncidentController],
+  controllers: [IncidentController, AnalyticsController, WebhookController],
   providers: [
     QwenClient,
+    DbService,
     AgentMessageBusService,
     IncidentToolsService,
     ConsensusEngine,
     AgentFactory,
-    DbService,
     TopologyMemoryService,
+    AnalyticsService,
+    SlackService,
     EventsGateway,
     IncidentService,
   ],

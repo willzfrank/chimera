@@ -1,77 +1,179 @@
 'use client';
 import { useState } from 'react';
+import { useChimera } from './src/hooks/useChimera';
 import { AgentGraph } from './src/components/AgentGraph';
 import { EventFeed } from './src/components/EventFeed';
-import { useChimera } from './src/hooks/useChimera';
 import { IncidentFormData } from './src/lib/types';
 
 const DEMOS: IncidentFormData[] = [
-  { title: 'API connection pool exhausted — chimera-api', description: 'HikariCP at max 100 connections. 47 threads waiting. 503s since deploy v2.14.1 at 14:20 UTC.', severity: 'P0', service: 'chimera-api' },
-  { title: 'Payment service p99 latency spike', description: 'Payment processing latency jumped from 200ms to 8900ms at p99. Error rate 12%. No recent deployments. Spike started after traffic doubled.', severity: 'P1', service: 'payment-service' },
-  { title: 'Redis cache hit rate collapsed to 4%', description: 'Cache hit rate dropped from 94% to 4% after maintenance window. Memory usage normal. Possible key eviction or misconfigured TTL.', severity: 'P1', service: 'cache-layer' },
+  {
+    title: 'API connection pool exhausted — chimera-api',
+    description: 'HikariCP at max 100 connections. 47 threads waiting. 503s since deploy v2.14.1 at 14:20 UTC.',
+    severity: 'P0', service: 'chimera-api',
+  },
+  {
+    title: 'Payment service p99 latency spike',
+    description: 'Payment processing latency jumped from 200ms to 8900ms at p99. Error rate 12%. No recent deployments. Spike started after traffic doubled.',
+    severity: 'P1', service: 'payment-service',
+  },
+  {
+    title: 'Redis cache hit rate collapsed to 4%',
+    description: 'Cache hit rate dropped from 94% to 4% after maintenance window. Memory usage normal. Possible key eviction or misconfigured TTL.',
+    severity: 'P1', service: 'cache-layer',
+  },
 ];
 
-const SEV_COLOR: Record<string, string> = { P0: '#ef4444', P1: '#f97316', P2: '#f59e0b', P3: '#3b82f6' };
+const SEV: Record<string, string> = { P0: '#ef4444', P1: '#f97316', P2: '#f59e0b', P3: '#3b82f6' };
+const STATUS_COLOR: Record<string, string> = {
+  idle: '#334155', synthesizing: '#f59e0b', running: '#3b82f6',
+  consensus: '#8b5cf6', awaiting_human: '#f59e0b', resolved: '#10b981',
+};
 
 export default function Home() {
-  const { nodes, edges, events, status, topology, consensus, incidentTitle, submitIncident } = useChimera();
-  const [form, setForm] = useState<IncidentFormData>({ title: '', description: '', severity: 'P1', service: '' });
+  const {
+    nodes, edges, events, status, topology, consensus,
+    checkpoint, incidentTitle, resolutionMs, fitTrigger,
+    submitIncident, resolveCheckpoint,
+  } = useChimera();
+
+  const [form, setForm] = useState<IncidentFormData>({
+    title: '', description: '', severity: 'P1', service: '',
+  });
+
   const busy = status !== 'idle' && status !== 'resolved';
 
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: '#040810', color: '#fff', fontFamily: 'system-ui, sans-serif', overflow: 'hidden' }}>
+  const inp: React.CSSProperties = {
+    background: '#0c1221', border: '1px solid #1e293b', borderRadius: 7,
+    padding: '7px 10px', fontSize: 11, color: '#e2e8f0', outline: 'none',
+    width: '100%', boxSizing: 'border-box',
+    transition: 'border-color 0.2s',
+  };
 
+  return (
+    <div style={{
+      display: 'flex', flexDirection: 'column', height: '100vh',
+      background: '#040810', color: '#fff',
+      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+      overflow: 'hidden',
+    }}>
       {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 20px', borderBottom: '1px solid #0f172a', flexShrink: 0 }}>
+      <header style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        padding: '10px 20px', borderBottom: '1px solid #0c1221', flexShrink: 0,
+      }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#ef4444', animation: 'pulse 2s infinite' }} />
-          <span style={{ fontWeight: 800, letterSpacing: 6, fontSize: 13 }}>CHIMERA</span>
-          <span style={{ color: '#334155', fontSize: 11 }}>autonomous incident response</span>
+          <div style={{
+            width: 8, height: 8, borderRadius: '50%', background: '#ef4444',
+            boxShadow: '0 0 8px #ef4444',
+            animation: 'ping 2s cubic-bezier(0,0,0.2,1) infinite',
+          }} />
+          <span style={{ fontWeight: 900, letterSpacing: 8, fontSize: 13, color: '#f1f5f9' }}>
+            CHIMERA
+          </span>
+          <span style={{ color: '#1e293b', fontSize: 11 }}>autonomous incident response</span>
         </div>
+
         {incidentTitle && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <span style={{ fontSize: 11, color: '#64748b', maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{incidentTitle}</span>
-            <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 20, border: `1px solid ${busy ? '#3b82f6' : status === 'resolved' ? '#10b981' : '#f59e0b'}`, color: busy ? '#3b82f6' : status === 'resolved' ? '#10b981' : '#f59e0b', fontFamily: 'monospace', fontWeight: 700 }}>
-              {status.replace('_', ' ').toUpperCase()}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, maxWidth: 400 }}>
+            <span style={{
+              fontSize: 11, color: '#475569',
+              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+            }}>
+              {incidentTitle}
+            </span>
+            <span style={{
+              fontSize: 9, padding: '3px 10px', borderRadius: 20,
+              border: `1px solid ${STATUS_COLOR[status]}`,
+              color: STATUS_COLOR[status], fontFamily: 'monospace', fontWeight: 800,
+              letterSpacing: 1.5, flexShrink: 0,
+            }}>
+              {status.replace(/_/g, ' ').toUpperCase()}
             </span>
           </div>
         )}
-        <span style={{ fontSize: 10, color: '#1e293b', fontFamily: 'monospace' }}>qwen cloud · alibaba cloud</span>
-      </div>
 
-      <div style={{ display: 'flex', flex: 1, gap: 12, padding: 12, overflow: 'hidden' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <a href="/dashboard" style={{
+            fontSize: 10, color: '#334155', fontFamily: 'monospace',
+            textDecoration: 'none', padding: '3px 8px', borderRadius: 6,
+            border: '1px solid #1e293b',
+          }}>
+            analytics ↗
+          </a>
+          <span style={{ fontSize: 10, color: '#1e293b', fontFamily: 'monospace' }}>
+            qwen cloud · alibaba cloud
+          </span>
+        </div>
+      </header>
+
+      {/* Body */}
+      <div style={{ display: 'flex', flex: 1, gap: 10, padding: 10, overflow: 'hidden' }}>
 
         {/* Left panel */}
-        <div style={{ width: 260, display: 'flex', flexDirection: 'column', gap: 10, flexShrink: 0 }}>
+        <div style={{ width: 264, display: 'flex', flexDirection: 'column', gap: 8, flexShrink: 0 }}>
 
-          {/* Form */}
-          <div style={{ background: '#070c18', border: '1px solid #1e293b', borderRadius: 12, padding: 14 }}>
-            <div style={{ fontSize: 9, fontWeight: 700, color: '#475569', letterSpacing: 3, marginBottom: 10 }}>SUBMIT INCIDENT</div>
+          {/* Incident form */}
+          <div style={{
+            background: '#060d1a', border: '1px solid #111827',
+            borderRadius: 12, padding: 14, flexShrink: 0,
+          }}>
+            <div style={{ fontSize: 8, fontWeight: 800, color: '#334155', letterSpacing: 3, marginBottom: 10 }}>
+              SUBMIT INCIDENT
+            </div>
 
-            {DEMOS.map((d, i) => (
-              <button key={i} onClick={() => { setForm(d); submitIncident(d); }} disabled={busy}
-                style={{ width: '100%', textAlign: 'left', padding: '6px 8px', marginBottom: 4, borderRadius: 6, border: '1px solid #1e293b', background: 'transparent', color: busy ? '#1e293b' : '#94a3b8', cursor: busy ? 'not-allowed' : 'pointer', fontSize: 10, transition: 'all 0.2s' }}>
-                <span style={{ color: SEV_COLOR[d.severity], fontWeight: 700, marginRight: 6, fontFamily: 'monospace' }}>{d.severity}</span>
-                {d.title.slice(0, 32)}…
-              </button>
-            ))}
+            {/* Demo buttons */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 10 }}>
+              {DEMOS.map((d, i) => (
+                <button key={i}
+                  onClick={() => { setForm(d); submitIncident(d); }}
+                  disabled={busy}
+                  style={{
+                    textAlign: 'left', padding: '7px 10px', borderRadius: 7,
+                    border: '1px solid #111827', background: 'transparent',
+                    color: busy ? '#1e293b' : '#64748b',
+                    cursor: busy ? 'not-allowed' : 'pointer', fontSize: 10,
+                    transition: 'all 0.2s',
+                  }}
+                  onMouseEnter={e => { if (!busy) (e.target as HTMLElement).style.borderColor = '#334155'; }}
+                  onMouseLeave={e => { (e.target as HTMLElement).style.borderColor = '#111827'; }}
+                >
+                  <span style={{ color: SEV[d.severity], fontWeight: 800, fontFamily: 'monospace', marginRight: 6 }}>
+                    {d.severity}
+                  </span>
+                  {d.title.slice(0, 30)}…
+                </button>
+              ))}
+            </div>
 
-            <div style={{ borderTop: '1px solid #0f172a', marginTop: 10, paddingTop: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
-              <input value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} placeholder="Incident title"
-                style={{ background: '#0f172a', border: '1px solid #1e293b', borderRadius: 6, padding: '6px 8px', fontSize: 11, color: '#fff', outline: 'none', width: '100%', boxSizing: 'border-box' }} />
-              <textarea value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} placeholder="Description" rows={3}
-                style={{ background: '#0f172a', border: '1px solid #1e293b', borderRadius: 6, padding: '6px 8px', fontSize: 11, color: '#fff', outline: 'none', resize: 'none', width: '100%', boxSizing: 'border-box' }} />
+            <div style={{ borderTop: '1px solid #0c1221', paddingTop: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <input style={inp} placeholder="Incident title"
+                value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} />
+              <textarea style={{ ...inp, resize: 'none' } as React.CSSProperties}
+                placeholder="Description" rows={3}
+                value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} />
               <div style={{ display: 'flex', gap: 6 }}>
-                <select value={form.severity} onChange={e => setForm(f => ({ ...f, severity: e.target.value as any }))}
-                  style={{ background: '#0f172a', border: '1px solid #1e293b', borderRadius: 6, padding: '6px 8px', fontSize: 11, color: '#fff', outline: 'none' }}>
-                  {['P0', 'P1', 'P2', 'P3'].map(s => <option key={s}>{s}</option>)}
+                <select style={{ ...inp, width: 'auto' } as React.CSSProperties}
+                  value={form.severity} onChange={e => setForm(f => ({ ...f, severity: e.target.value as any }))}>
+                  {(['P0', 'P1', 'P2', 'P3'] as const).map(s => <option key={s}>{s}</option>)}
                 </select>
-                <input value={form.service} onChange={e => setForm(f => ({ ...f, service: e.target.value }))} placeholder="service"
-                  style={{ flex: 1, background: '#0f172a', border: '1px solid #1e293b', borderRadius: 6, padding: '6px 8px', fontSize: 11, color: '#fff', outline: 'none' }} />
+                <input style={inp} placeholder="service-name"
+                  value={form.service} onChange={e => setForm(f => ({ ...f, service: e.target.value }))} />
               </div>
-              <button onClick={() => submitIncident(form)} disabled={busy || !form.title || !form.service}
-                style={{ padding: '8px', borderRadius: 8, border: 'none', background: busy ? '#1e293b' : 'linear-gradient(135deg, #3b82f6, #8b5cf6)', color: busy ? '#334155' : '#fff', fontSize: 11, fontWeight: 700, letterSpacing: 2, cursor: busy ? 'not-allowed' : 'pointer' }}>
-                {busy ? 'RUNNING…' : 'DISPATCH CHIMERA'}
+              <button
+                onClick={() => submitIncident(form)}
+                disabled={busy || !form.title || !form.service}
+                style={{
+                  padding: '9px', borderRadius: 8, border: 'none',
+                  background: busy
+                    ? '#0c1221'
+                    : 'linear-gradient(135deg, #2563eb 0%, #7c3aed 100%)',
+                  color: busy ? '#334155' : '#fff',
+                  fontSize: 11, fontWeight: 800, letterSpacing: 2,
+                  cursor: busy || !form.title || !form.service ? 'not-allowed' : 'pointer',
+                  transition: 'all 0.3s',
+                }}
+              >
+                {busy ? 'INVESTIGATING…' : 'DISPATCH CHIMERA'}
               </button>
             </div>
           </div>
@@ -82,9 +184,15 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Graph */}
+        {/* Main graph */}
         <div style={{ flex: 1, minHeight: 0 }}>
-          <AgentGraph nodes={nodes} edges={edges} status={status} topology={topology} consensus={consensus} />
+          <AgentGraph
+            nodes={nodes} edges={edges} status={status}
+            topology={topology} consensus={consensus}
+            checkpoint={checkpoint} resolutionMs={resolutionMs}
+            fitTrigger={fitTrigger}
+            onCheckpointResolve={resolveCheckpoint}
+          />
         </div>
       </div>
     </div>

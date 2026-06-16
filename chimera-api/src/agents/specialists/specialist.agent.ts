@@ -30,6 +30,17 @@ export class SpecialistAgent extends BaseAgent {
             confidence: response.confidence,
         });
 
+        await this.bus.emitEvent({
+            type: 'agent_done',
+            correlationId: this.correlationId,
+            payload: {
+                agentId: this.agentId,
+                agentName: this.name,
+                confidence: response.confidence,
+                role: this.role,
+            },
+        });
+
         this.logger.log(`Investigation done — confidence=${response.confidence.toFixed(2)}`);
     }
 
