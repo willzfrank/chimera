@@ -54,6 +54,19 @@ class BaseAgent {
                 model: this.role === 'meta-orchestrator' ? 'qwen-max' : 'qwen-plus',
             });
             this.totalTokens += result.usage.promptTokens + result.usage.completionTokens;
+            const costUsd = ((result.usage.promptTokens + result.usage.completionTokens) / 1000) * 0.0004;
+            await this.bus.emitEvent({
+                type: 'tokens_consumed',
+                correlationId: this.correlationId,
+                payload: {
+                    agentId: this.agentId,
+                    agentName: this.name,
+                    promptTokens: result.usage.promptTokens,
+                    completionTokens: result.usage.completionTokens,
+                    costUsd,
+                    model: result.model,
+                },
+            });
             if (!result.toolCalls.length) {
                 finalContent = result.content;
                 this.history.push({ role: 'assistant', content: result.content });

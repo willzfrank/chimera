@@ -54,6 +54,18 @@ export class AdversarialAgent extends BaseAgent {
         });
 
         await this.bus.emitEvent({
+            type: 'agent_reasoning',
+            correlationId: this.correlationId,
+            payload: {
+                agentId: this.agentId,
+                agentName: this.name,
+                role: this.role,
+                reasoning: response.content.slice(0, 600),
+                confidence: response.confidence,
+            },
+        });
+
+        await this.bus.emitEvent({
             type: 'agent_done',
             correlationId: this.correlationId,
             payload: {

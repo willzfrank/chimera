@@ -8,14 +8,22 @@ var __decorate = (this && this.__decorate) || function (decorators, target, key,
 var __metadata = (this && this.__metadata) || function (k, v) {
     if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
 };
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.AnalyticsService = void 0;
 const common_1 = require("@nestjs/common");
+const openai_1 = __importDefault(require("openai"));
 const db_service_1 = require("../memory/db.service");
 const ENGINEER_HOURLY_RATE = 150;
 const AVG_MANUAL_RESOLUTION_MINS = 45;
 let AnalyticsService = class AnalyticsService {
     db;
+    openai = new openai_1.default({
+        apiKey: process.env.QWEN_API_KEY,
+        baseURL: 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1',
+    });
     constructor(db) {
         this.db = db;
     }
@@ -80,6 +88,39 @@ let AnalyticsService = class AnalyticsService {
     async getPostmortem(incidentId) {
         const { rows } = await this.db.pool.query(`SELECT * FROM incidents WHERE id = $1`, [incidentId]);
         return rows[0] ?? null;
+    }
+    async generateExecutiveSummary(incidentId) {
+        const data = await this.getPostmortem(incidentId);
+        if (!data)
+            return 'Incident not found.';
+        try {
+            const response = await this.openai.chat.completions.create({
+                model: 'qwen-turbo',
+                temperature: 0.3,
+                messages: [
+                    {
+                        role: 'system',
+                        content: `Write a 3-sentence executive summary for a non-technical C-suite audience.
+Be specific about business impact, root cause, and resolution.
+No technical jargon. Start with the business impact.`,
+                    },
+                    {
+                        role: 'user',
+                        content: `Incident: ${data.title}
+Severity: ${data.severity} | Service: ${data.service}
+Class: ${data.incident_class?.replace(/_/g, ' ')}
+Resolution time: ${data.resolution_ms ? (data.resolution_ms / 1000).toFixed(1) + 's' : 'unknown'}
+AI confidence: ${data.confidence ? (data.confidence * 100).toFixed(0) + '%' : 'unknown'}
+Decision: ${data.decision ?? 'See full postmortem'}
+Auto-detected: ${data.metadata?.autoDetected ? 'Yes (no human triggered alert)' : 'No'}`,
+                    },
+                ],
+            });
+            return response.choices[0].message.content ?? 'Summary unavailable.';
+        }
+        catch {
+            return `${data.severity} incident on ${data.service} resolved in ${(data.resolution_ms / 1000).toFixed(1)}s with ${(data.confidence * 100).toFixed(0)}% confidence.`;
+        }
     }
 };
 exports.AnalyticsService = AnalyticsService;

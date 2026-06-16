@@ -32,7 +32,8 @@ const STATUS_COLOR: Record<string, string> = {
 export default function Home() {
   const {
     nodes, edges, events, status, topology, consensus,
-    checkpoint, incidentTitle, resolutionMs, fitTrigger,
+    checkpoint, incidentTitle, resolutionMs, fitTrigger, totalCostUsd,
+    autoMode, toggleAutoMode,
     submitIncident, resolveCheckpoint,
   } = useChimera();
 
@@ -89,6 +90,11 @@ export default function Home() {
             }}>
               {status.replace(/_/g, ' ').toUpperCase()}
             </span>
+            {totalCostUsd > 0 && (
+              <span style={{ fontSize: 10, color: '#334155', fontFamily: 'monospace' }}>
+                ${totalCostUsd.toFixed(4)} · saving ~${(150 * 0.75).toFixed(0)} eng cost
+              </span>
+            )}
           </div>
         )}
 
@@ -100,6 +106,32 @@ export default function Home() {
           }}>
             analytics ↗
           </a>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 9, color: '#334155', fontFamily: 'monospace' }}>AUTO DETECT</span>
+            <div
+              onClick={() => toggleAutoMode(!autoMode)}
+              style={{
+                width: 36, height: 20, borderRadius: 99, cursor: 'pointer',
+                background: autoMode ? '#10b981' : '#1e293b',
+                border: `1px solid ${autoMode ? '#10b981' : '#334155'}`,
+                position: 'relative', transition: 'all 0.3s',
+              }}
+            >
+              <div style={{
+                position: 'absolute', top: 2,
+                left: autoMode ? 18 : 2,
+                width: 14, height: 14, borderRadius: '50%',
+                background: autoMode ? '#fff' : '#475569',
+                transition: 'left 0.3s',
+              }} />
+            </div>
+            <span style={{
+              fontSize: 9, fontFamily: 'monospace', fontWeight: 700,
+              color: autoMode ? '#10b981' : '#334155',
+            }}>
+              {autoMode ? 'ON' : 'OFF'}
+            </span>
+          </div>
           <span style={{ fontSize: 10, color: '#1e293b', fontFamily: 'monospace' }}>
             qwen cloud · alibaba cloud
           </span>

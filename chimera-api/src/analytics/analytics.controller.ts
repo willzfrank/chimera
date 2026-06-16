@@ -1,14 +1,39 @@
 import { Controller, Get, Param, Res } from '@nestjs/common';
-import { Response } from 'express';
+import { ApiOperation } from '@nestjs/swagger';
+import type { Response } from 'express';
 import { AnalyticsService } from './analytics.service';
+import { LearningService } from '../memory/learning.service';
+import { RiskService } from './risk.service';
 
 @Controller('analytics')
 export class AnalyticsController {
-    constructor(private readonly analytics: AnalyticsService) { }
+    constructor(
+        private readonly analytics: AnalyticsService,
+        private readonly learning: LearningService,
+        private readonly risk: RiskService,
+    ) { }
 
     @Get('summary')
     getSummary() {
         return this.analytics.getSummary();
+    }
+
+    @Get('summary/:id')
+    @ApiOperation({ summary: 'Executive summary for non-technical stakeholders' })
+    async getExecutiveSummary(@Param('id') id: string) {
+        const summary = await this.analytics.generateExecutiveSummary(id);
+        return { incidentId: id, summary };
+    }
+
+    @Get('learnings')
+    async getLearnings() {
+        return this.learning.getAllLearnings();
+    }
+
+    @ApiOperation({ summary: 'Current incident risk velocity scores by class' })
+    @Get('risk')
+    async getRisk() {
+        return this.risk.getRiskScores();
     }
 
     @Get('postmortem/:id')
@@ -17,6 +42,7 @@ export class AnalyticsController {
         if (!data) return res.status(404).json({ error: 'Not found' });
 
         const md = `# CHIMERA Incident Postmortem
+
 
 **ID:** ${data.id}
 **Title:** ${data.title}

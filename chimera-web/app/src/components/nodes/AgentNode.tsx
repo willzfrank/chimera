@@ -43,10 +43,11 @@ export default memo(function AgentNode({ data }: { data: any }) {
                 ? `0 0 12px ${cfg.color}33`
                 : `0 0 6px ${cfg.color}11`,
         animation: 'fadeSlideIn 0.35s ease forwards',
+        cursor: data.onSelect ? 'pointer' : undefined,
     };
 
     return (
-        <div style={containerStyle}>
+        <div style={containerStyle} onClick={() => data.onSelect?.(data.name)}>
             <Handle type="target" position={Position.Top}
                 style={{ background: cfg.color, border: 'none', width: 8, height: 8, top: -4 }} />
 

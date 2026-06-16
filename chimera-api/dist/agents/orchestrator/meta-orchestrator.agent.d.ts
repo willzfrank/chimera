@@ -5,12 +5,14 @@ import { AgentFactory } from '../core/agent-factory';
 import { ConsensusEngine } from '../core/consensus-engine';
 import { AgentMessage, ConsensusResult, Incident } from '../core/types';
 import { TopologyMemoryService } from '../../memory/topology-memory.service';
+import { LearningService } from '../../memory/learning.service';
 import { AnalyticsService } from '../../analytics/analytics.service';
 import { SlackService } from '../../notifications/slack.service';
 export declare class MetaOrchestratorAgent extends BaseAgent {
     private readonly factory;
     private readonly consensusEngine;
     private readonly memory?;
+    private readonly learning?;
     private readonly analytics?;
     private readonly slack?;
     private readonly emitter;
@@ -19,7 +21,7 @@ export declare class MetaOrchestratorAgent extends BaseAgent {
     private specialistTaskMap;
     private spawnedSpecialists;
     private spawnedAdversarials;
-    constructor(qwen: QwenClient, bus: AgentMessageBusService, factory: AgentFactory, consensusEngine: ConsensusEngine, memory?: TopologyMemoryService | undefined, analytics?: AnalyticsService | undefined, slack?: SlackService | undefined);
+    constructor(qwen: QwenClient, bus: AgentMessageBusService, factory: AgentFactory, consensusEngine: ConsensusEngine, memory?: TopologyMemoryService | undefined, learning?: LearningService | undefined, analytics?: AnalyticsService | undefined, slack?: SlackService | undefined);
     processIncident(incident: Incident): Promise<ConsensusResult>;
     protected handleMessage(msg: AgentMessage): Promise<void>;
     private spawnSociety;

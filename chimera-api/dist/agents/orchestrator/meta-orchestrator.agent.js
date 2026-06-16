@@ -15,6 +15,7 @@ class MetaOrchestratorAgent extends base_agent_1.BaseAgent {
     factory;
     consensusEngine;
     memory;
+    learning;
     analytics;
     slack;
     emitter = new events_1.EventEmitter();
@@ -23,11 +24,12 @@ class MetaOrchestratorAgent extends base_agent_1.BaseAgent {
     specialistTaskMap = new Map();
     spawnedSpecialists = [];
     spawnedAdversarials = [];
-    constructor(qwen, bus, factory, consensusEngine, memory, analytics, slack) {
+    constructor(qwen, bus, factory, consensusEngine, memory, learning, analytics, slack) {
         super(ORCHESTRATOR_SPEC, qwen, bus);
         this.factory = factory;
         this.consensusEngine = consensusEngine;
         this.memory = memory;
+        this.learning = learning;
         this.analytics = analytics;
         this.slack = slack;
         this.emitter.setMaxListeners(0);
@@ -44,6 +46,19 @@ class MetaOrchestratorAgent extends base_agent_1.BaseAgent {
                 topology = recalled;
                 fromMemory = true;
                 this.logger.log(`Memory HIT: class=${topology.incidentClass} — skipping synthesis`);
+            }
+        }
+        if (topology && fromMemory && this.learning) {
+            const patterns = await this.learning.getPatterns(topology.incidentClass);
+            if (patterns.length > 0) {
+                const patternText = `\n\nLEARNED PATTERNS:\n${patterns.map((p, i) => `${i + 1}. ${p}`).join('\n')}`;
+                topology = {
+                    ...topology,
+                    agents: topology.agents.map(a => a.role === 'specialist'
+                        ? { ...a, systemPrompt: a.systemPrompt + patternText }
+                        : a),
+                };
+                this.logger.log(`Injected ${patterns.length} learned patterns into recalled topology`);
             }
         }
         if (!topology) {
@@ -110,6 +125,10 @@ class MetaOrchestratorAgent extends base_agent_1.BaseAgent {
             });
         }
         const resolutionMs = Date.now() - startTime;
+        if (this.learning && consensus.confidence > 0.75) {
+            const findings = Array.from(this.specialistResults.values()).map(r => r.content);
+            await this.learning.extractAndStore(topology.incidentClass, incident.description, findings, consensus.decision, consensus.confidence).catch(() => { });
+        }
         if (this.memory && !fromMemory && consensus.confidence > 0.7) {
             await this.memory.store(incident.description, topology, consensus.confidence, resolutionMs);
         }

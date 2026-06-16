@@ -12,5 +12,5 @@ export declare class EventsGateway implements OnModuleInit, OnGatewayConnection,
     handleDisconnect(client: Socket): void;
     getHistory(data: {
         fromId?: string;
-    }): Promise<import("../agents/core/types").ChimeraEvent[]>;
+    }, client: Socket): Promise<import("../agents/core/types").ChimeraEvent[]>;
 }

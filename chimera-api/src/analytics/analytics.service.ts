@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import OpenAI from 'openai';
 import { DbService } from '../memory/db.service';
 import { Incident, ConsensusResult } from '../agents/core/types';
 
@@ -7,6 +8,11 @@ const AVG_MANUAL_RESOLUTION_MINS = 45;
 
 @Injectable()
 export class AnalyticsService {
+    private readonly openai = new OpenAI({
+        apiKey: process.env.QWEN_API_KEY,
+        baseURL: 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1',
+    });
+
     constructor(private readonly db: DbService) { }
 
     async recordIncident(
@@ -86,5 +92,38 @@ export class AnalyticsService {
             `SELECT * FROM incidents WHERE id = $1`, [incidentId],
         );
         return rows[0] ?? null;
+    }
+
+    async generateExecutiveSummary(incidentId: string): Promise<string> {
+        const data = await this.getPostmortem(incidentId);
+        if (!data) return 'Incident not found.';
+
+        try {
+            const response = await this.openai.chat.completions.create({
+                model: 'qwen-turbo',
+                temperature: 0.3,
+                messages: [
+                    {
+                        role: 'system',
+                        content: `Write a 3-sentence executive summary for a non-technical C-suite audience.
+Be specific about business impact, root cause, and resolution.
+No technical jargon. Start with the business impact.`,
+                    },
+                    {
+                        role: 'user',
+                        content: `Incident: ${data.title}
+Severity: ${data.severity} | Service: ${data.service}
+Class: ${data.incident_class?.replace(/_/g, ' ')}
+Resolution time: ${data.resolution_ms ? (data.resolution_ms / 1000).toFixed(1) + 's' : 'unknown'}
+AI confidence: ${data.confidence ? (data.confidence * 100).toFixed(0) + '%' : 'unknown'}
+Decision: ${data.decision ?? 'See full postmortem'}
+Auto-detected: ${data.metadata?.autoDetected ? 'Yes (no human triggered alert)' : 'No'}`,
+                    },
+                ],
+            });
+            return response.choices[0].message.content ?? 'Summary unavailable.';
+        } catch {
+            return `${data.severity} incident on ${data.service} resolved in ${(data.resolution_ms / 1000).toFixed(1)}s with ${(data.confidence * 100).toFixed(0)}% confidence.`;
+        }
     }
 }

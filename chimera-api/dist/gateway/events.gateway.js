@@ -37,8 +37,9 @@ let EventsGateway = EventsGateway_1 = class EventsGateway {
     handleDisconnect(client) {
         this.logger.debug(`Client disconnected: ${client.id}`);
     }
-    async getHistory(data) {
-        return this.bus.getEventHistory(data?.fromId ?? '0-0');
+    async getHistory(data, client) {
+        const events = await this.bus.getEventHistory(data?.fromId ?? '0-0');
+        return events;
     }
 };
 exports.EventsGateway = EventsGateway;
@@ -49,8 +50,9 @@ __decorate([
 __decorate([
     (0, websockets_1.SubscribeMessage)('get_history'),
     __param(0, (0, websockets_1.MessageBody)()),
+    __param(1, (0, websockets_1.ConnectedSocket)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Object]),
+    __metadata("design:paramtypes", [Object, socket_io_1.Socket]),
     __metadata("design:returntype", Promise)
 ], EventsGateway.prototype, "getHistory", null);
 exports.EventsGateway = EventsGateway = EventsGateway_1 = __decorate([

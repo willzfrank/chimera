@@ -85,6 +85,7 @@ export interface HumanCheckpoint {
 export type ChimeraEventType =
   | 'agent_spawned'
   | 'agent_thinking'
+  | 'agent_reasoning'
   | 'agent_done'
   | 'agent_message'
   | 'agent_terminated'

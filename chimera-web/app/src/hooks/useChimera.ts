@@ -85,6 +85,10 @@ export function useChimera() {
     const [incidentTitle, setIncidentTitle] = useState('');
     const [resolutionMs, setResolutionMs] = useState<number | null>(null);
     const [fitTrigger, setFitTrigger] = useState(0);
+    const [agentReasonings, setAgentReasonings] = useState<Map<string, string>>(new Map());
+    const [selectedAgent, setSelectedAgent] = useState<string | null>(null);
+    const [totalCostUsd, setTotalCostUsd] = useState(0);
+    const [autoMode, setAutoMode] = useState(false);
 
     const idToName = useRef<Map<string, string>>(new Map());
 
@@ -104,6 +108,12 @@ export function useChimera() {
         const { type, payload } = event;
 
         switch (type) {
+            case 'auto_incident_detected': {
+                setIncidentTitle(`🤖 AUTO: ${payload.title}`);
+                setStatus('synthesizing');
+                break;
+            }
+
             case 'topology_built': {
                 const agents = (payload.agents ?? []) as AgentInfo[];
                 setTopology({
@@ -155,6 +165,14 @@ export function useChimera() {
                 break;
             }
 
+            case 'agent_reasoning': {
+                const name = idToName.current.get(payload.agentId as string) ?? payload.agentName as string;
+                if (name) {
+                    setAgentReasonings(prev => new Map(prev).set(name, payload.reasoning as string));
+                }
+                break;
+            }
+
             case 'agent_message': {
                 const fromName = idToName.current.get(payload.from as string);
                 const toName = idToName.current.get(payload.to as string);
@@ -201,13 +219,43 @@ export function useChimera() {
                 setResolutionMs(payload.resolutionMs as number);
                 break;
             }
+
+            case 'tokens_consumed': {
+                setTotalCostUsd(prev => prev + (payload.costUsd as number));
+                break;
+            }
+
+            case 'watcher_toggled':
+                setAutoMode(payload.enabled as boolean);
+                break;
         }
     }, [patchNode, flashEdge]);
 
     useEffect(() => {
         const socket = getSocket();
+
+        const onConnect = () => {
+            socket.emit('get_history', { fromId: '0-0' }, (history: ChimeraEvent[]) => {
+                if (!history?.length) return;
+
+                const oneHourAgo = Date.now() - 3_600_000;
+                const recent = history
+                    .filter(e => e.timestamp > oneHourAgo)
+                    .sort((a, b) => a.timestamp - b.timestamp);
+
+                recent.forEach(handleEvent);
+            });
+        };
+
+        socket.on('connect', onConnect);
         socket.on('chimera:event', handleEvent);
-        return () => { socket.off('chimera:event', handleEvent); };
+
+        if (socket.connected) onConnect();
+
+        return () => {
+            socket.off('connect', onConnect);
+            socket.off('chimera:event', handleEvent);
+        };
     }, [handleEvent]);
 
     const submitIncident = useCallback(async (data: IncidentFormData) => {
@@ -215,6 +263,9 @@ export function useChimera() {
         setTopology(null); setConsensus(null); setCheckpoint(null);
         setResolutionMs(null); setStatus('synthesizing');
         setIncidentTitle(data.title);
+        setAgentReasonings(new Map());
+        setSelectedAgent(null);
+        setTotalCostUsd(0);
         idToName.current.clear();
 
         await fetch('http://localhost:3000/incidents', {
@@ -235,9 +286,20 @@ export function useChimera() {
         setStatus(approved ? 'resolved' : 'idle');
     }, [checkpoint]);
 
+    const toggleAutoMode = useCallback(async (on: boolean) => {
+        await fetch('http://localhost:3000/monitoring/toggle', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ enabled: on }),
+        });
+        setAutoMode(on);
+    }, []);
+
     return {
         nodes, edges, events, status, topology, consensus,
         checkpoint, incidentTitle, resolutionMs, fitTrigger,
+        agentReasonings, selectedAgent, setSelectedAgent, totalCostUsd,
+        autoMode, toggleAutoMode,
         submitIncident, resolveCheckpoint,
     };
 }

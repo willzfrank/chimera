@@ -35,13 +35,16 @@ class TopologySynthesizerAgent extends base_agent_1.BaseAgent {
     constructor(qwen, bus, correlationId) {
         super({ role: 'topology-synthesizer', name: 'TopologySynthesizer', systemPrompt: SYSTEM_PROMPT, tools: [] }, qwen, bus, correlationId);
     }
-    async synthesize(incident) {
+    async synthesize(incident, priorPatterns = []) {
         this.logger.log(`Synthesizing topology for: ${incident.title}`);
+        const patternContext = priorPatterns.length > 0
+            ? `\n\nKNOWN DIAGNOSTIC PATTERNS FOR THIS INCIDENT CLASS (learned from previous resolutions):\n${priorPatterns.map((p, i) => `${i + 1}. ${p}`).join('\n')}\n\nInject these patterns into specialist system prompts so agents know what to look for immediately.`
+            : '';
         let lastError = '';
         for (let attempt = 1; attempt <= 3; attempt++) {
             const prompt = attempt === 1
-                ? `Design the optimal agent topology for this incident:\n\n${JSON.stringify(incident, null, 2)}`
-                : `Previous attempt returned invalid JSON: ${lastError}\n\nTry again. Return ONLY valid JSON, no text outside the object.\n\nIncident:\n${JSON.stringify(incident, null, 2)}`;
+                ? `Design the optimal agent topology for this incident:\n\n${JSON.stringify(incident, null, 2)}${patternContext}\n\nGenerate the topology.`
+                : `Previous attempt returned invalid JSON: ${lastError}\n\nTry again. Return ONLY valid JSON, no text outside the object.\n\nIncident:\n${JSON.stringify(incident, null, 2)}${patternContext}`;
             const response = await this.think(prompt);
             try {
                 const raw = JSON.parse(response.content.replace(/```json|```/g, '').trim());

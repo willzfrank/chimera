@@ -30,6 +30,7 @@ interface Props {
     checkpoint: HumanCheckpoint | null;
     resolutionMs: number | null;
     fitTrigger: number;
+    onSelect?: (name: string) => void;
     onCheckpointResolve: (approved: boolean) => void;
 }
 
@@ -67,9 +68,13 @@ function GraphCanvas({ nodes, edges, fitTrigger }: Pick<Props, 'nodes' | 'edges'
 
 export function AgentGraph({
     nodes, edges, status, topology, consensus,
-    checkpoint, resolutionMs, fitTrigger, onCheckpointResolve,
+    checkpoint, resolutionMs, fitTrigger, onSelect, onCheckpointResolve,
 }: Props) {
     const confColor = (c: number) => c >= 0.8 ? '#10b981' : c >= 0.6 ? '#f59e0b' : '#f43f5e';
+    const graphNodes = nodes.map(n => ({
+        ...n,
+        data: { ...n.data, onSelect: (name: string) => onSelect?.(name) },
+    }));
 
     return (
         <div style={{
@@ -112,7 +117,7 @@ export function AgentGraph({
             {/* Graph */}
             <div style={{ paddingTop: 40, height: '100%' }}>
                 <ReactFlowProvider>
-                    <GraphCanvas nodes={nodes} edges={edges} fitTrigger={fitTrigger} />
+                    <GraphCanvas nodes={graphNodes} edges={edges} fitTrigger={fitTrigger} />
                 </ReactFlowProvider>
             </div>
 

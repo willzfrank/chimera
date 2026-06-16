@@ -18,9 +18,12 @@ const agent_message_bus_service_1 = require("../agents/core/agent-message-bus.se
 const agent_factory_1 = require("../agents/core/agent-factory");
 const consensus_engine_1 = require("../agents/core/consensus-engine");
 const topology_memory_service_1 = require("../memory/topology-memory.service");
+const learning_service_1 = require("../memory/learning.service");
 const meta_orchestrator_agent_1 = require("../agents/orchestrator/meta-orchestrator.agent");
+const incident_queue_1 = require("./incident.queue");
 const analytics_service_1 = require("../analytics/analytics.service");
 const slack_service_1 = require("../notifications/slack.service");
+const metric_watcher_service_1 = require("../monitoring/metric-watcher.service");
 class CreateIncidentDto {
     title;
     description;
@@ -35,18 +38,25 @@ let IncidentService = IncidentService_1 = class IncidentService {
     factory;
     consensus;
     memory;
+    learning;
     analytics;
     slack;
+    queue;
+    watcher;
     logger = new common_1.Logger(IncidentService_1.name);
     checkpoints = new Map();
-    constructor(qwen, bus, factory, consensus, memory, analytics, slack) {
+    constructor(qwen, bus, factory, consensus, memory, learning, analytics, slack, queue, watcher) {
         this.qwen = qwen;
         this.bus = bus;
         this.factory = factory;
         this.consensus = consensus;
         this.memory = memory;
+        this.learning = learning;
         this.analytics = analytics;
         this.slack = slack;
+        this.queue = queue;
+        this.watcher = watcher;
+        this.watcher.setIncidentHandler((dto) => this.handleIncident(dto));
     }
     resolveCheckpoint(id, approved) {
         const fn = this.checkpoints.get(id);
@@ -77,8 +87,11 @@ let IncidentService = IncidentService_1 = class IncidentService {
             timestamp: Date.now(),
         };
         this.logger.log(`Incident: [${incident.severity}] ${incident.title}`);
-        const orchestrator = new meta_orchestrator_agent_1.MetaOrchestratorAgent(this.qwen, this.bus, this.factory, this.consensus, this.memory, this.analytics, this.slack);
-        return orchestrator.processIncident(incident);
+        const priority = { P0: 4, P1: 3, P2: 2, P3: 1 }[dto.severity] ?? 2;
+        this.queue.enqueue(incident.id, priority, async () => {
+            const orchestrator = new meta_orchestrator_agent_1.MetaOrchestratorAgent(this.qwen, this.bus, this.factory, this.consensus, this.memory, this.learning, this.analytics, this.slack);
+            await orchestrator.processIncident(incident);
+        });
     }
 };
 exports.IncidentService = IncidentService;
@@ -89,7 +102,10 @@ exports.IncidentService = IncidentService = IncidentService_1 = __decorate([
         agent_factory_1.AgentFactory,
         consensus_engine_1.ConsensusEngine,
         topology_memory_service_1.TopologyMemoryService,
+        learning_service_1.LearningService,
         analytics_service_1.AnalyticsService,
-        slack_service_1.SlackService])
+        slack_service_1.SlackService,
+        incident_queue_1.IncidentQueue,
+        metric_watcher_service_1.MetricWatcherService])
 ], IncidentService);
 //# sourceMappingURL=incident.service.js.map

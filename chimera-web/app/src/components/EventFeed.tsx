@@ -12,6 +12,7 @@ const CFG: Record<string, { color: string; icon: string; label: string }> = {
     consensus_reached: { color: '#10b981', icon: '⚖', label: 'CONSENSUS' },
     human_checkpoint: { color: '#f59e0b', icon: '👤', label: 'HUMAN' },
     incident_resolved: { color: '#10b981', icon: '✓', label: 'RESOLVED' },
+    auto_incident_detected: { color: '#f43f5e', icon: '🔍', label: 'AUTO-DETECTED' },
 };
 
 function describe(type: string, p: Record<string, any>): string {

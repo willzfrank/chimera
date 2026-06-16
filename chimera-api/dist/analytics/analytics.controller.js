@@ -14,20 +14,38 @@ var __param = (this && this.__param) || function (paramIndex, decorator) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.AnalyticsController = void 0;
 const common_1 = require("@nestjs/common");
+const swagger_1 = require("@nestjs/swagger");
 const analytics_service_1 = require("./analytics.service");
+const learning_service_1 = require("../memory/learning.service");
+const risk_service_1 = require("./risk.service");
 let AnalyticsController = class AnalyticsController {
     analytics;
-    constructor(analytics) {
+    learning;
+    risk;
+    constructor(analytics, learning, risk) {
         this.analytics = analytics;
+        this.learning = learning;
+        this.risk = risk;
     }
     getSummary() {
         return this.analytics.getSummary();
+    }
+    async getExecutiveSummary(id) {
+        const summary = await this.analytics.generateExecutiveSummary(id);
+        return { incidentId: id, summary };
+    }
+    async getLearnings() {
+        return this.learning.getAllLearnings();
+    }
+    async getRisk() {
+        return this.risk.getRiskScores();
     }
     async getPostmortem(id, res) {
         const data = await this.analytics.getPostmortem(id);
         if (!data)
             return res.status(404).json({ error: 'Not found' });
         const md = `# CHIMERA Incident Postmortem
+
 
 **ID:** ${data.id}
 **Title:** ${data.title}
@@ -82,6 +100,27 @@ __decorate([
     __metadata("design:returntype", void 0)
 ], AnalyticsController.prototype, "getSummary", null);
 __decorate([
+    (0, common_1.Get)('summary/:id'),
+    (0, swagger_1.ApiOperation)({ summary: 'Executive summary for non-technical stakeholders' }),
+    __param(0, (0, common_1.Param)('id')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String]),
+    __metadata("design:returntype", Promise)
+], AnalyticsController.prototype, "getExecutiveSummary", null);
+__decorate([
+    (0, common_1.Get)('learnings'),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", []),
+    __metadata("design:returntype", Promise)
+], AnalyticsController.prototype, "getLearnings", null);
+__decorate([
+    (0, swagger_1.ApiOperation)({ summary: 'Current incident risk velocity scores by class' }),
+    (0, common_1.Get)('risk'),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", []),
+    __metadata("design:returntype", Promise)
+], AnalyticsController.prototype, "getRisk", null);
+__decorate([
     (0, common_1.Get)('postmortem/:id'),
     __param(0, (0, common_1.Param)('id')),
     __param(1, (0, common_1.Res)()),
@@ -91,6 +130,8 @@ __decorate([
 ], AnalyticsController.prototype, "getPostmortem", null);
 exports.AnalyticsController = AnalyticsController = __decorate([
     (0, common_1.Controller)('analytics'),
-    __metadata("design:paramtypes", [analytics_service_1.AnalyticsService])
+    __metadata("design:paramtypes", [analytics_service_1.AnalyticsService,
+        learning_service_1.LearningService,
+        risk_service_1.RiskService])
 ], AnalyticsController);
 //# sourceMappingURL=analytics.controller.js.map

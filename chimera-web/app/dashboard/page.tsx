@@ -45,9 +45,13 @@ const label: React.CSSProperties = {
     display: 'block',
 };
 
+const RISK_COLOR: Record<string, string> = { low: '#10b981', medium: '#f59e0b', high: '#f97316', critical: '#ef4444' };
+const TREND_ICON: Record<string, string> = { stable: '→', rising: '↑', spiking: '⚠️' };
+
 export default function Dashboard() {
     const [data, setData] = useState<{ summary: Summary; byClass: ByClass[]; recent: RecentIncident[] } | null>(null);
     const [loading, setLoading] = useState(true);
+    const [risks, setRisks] = useState<any[]>([]);
 
     useEffect(() => {
         fetch('http://localhost:3000/analytics/summary')
@@ -60,6 +64,11 @@ export default function Dashboard() {
                 .then(r => r.json()).then(setData).catch(() => { });
         }, 10_000);
         return () => clearInterval(interval);
+    }, []);
+
+    useEffect(() => {
+        fetch('http://localhost:3000/analytics/risk')
+            .then(r => r.json()).then(setRisks).catch(() => { });
     }, []);
 
     const s = data?.summary;
@@ -210,7 +219,7 @@ export default function Dashboard() {
                                             ? <span style={{ fontSize: 8, padding: '1px 5px', borderRadius: 4, background: '#3b0764', color: '#c084fc' }}>⚡ RECALL</span>
                                             : <span style={{ fontSize: 8, padding: '1px 5px', borderRadius: 4, background: '#0c1829', color: '#3b82f6' }}>SYNTH</span>}
                                     </td>
-                                    <td style={{ padding: '6px 8px' }}>
+                                    <td style={{ padding: '6px 8px', display: 'flex', gap: 8 }}>
                                         <a
                                             href={`http://localhost:3000/analytics/postmortem/${inc.id}`}
                                             target="_blank"
@@ -219,6 +228,16 @@ export default function Dashboard() {
                                         >
                                             report ↗
                                         </a>
+                                        <button
+                                            onClick={async () => {
+                                                const res = await fetch(`http://localhost:3000/analytics/summary/${inc.id}`);
+                                                const { summary } = await res.json();
+                                                alert(summary);
+                                            }}
+                                            style={{ fontSize: 9, color: '#475569', fontFamily: 'monospace', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+                                        >
+                                            exec ↗
+                                        </button>
                                     </td>
                                 </tr>
                             ))}
@@ -258,6 +277,42 @@ export default function Dashboard() {
                                 {speedup && ` (${speedup}× faster)`}
                             </div>
                         </div>
+                    </div>
+                </div>
+            )}
+
+            {risks.length > 0 && (
+                <div style={{ ...card, marginTop: 12 }}>
+                    <span style={label}>Incident Risk Velocity</span>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                        {risks.map((r, i) => (
+                            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                                <span style={{
+                                    fontSize: 9, padding: '2px 8px', borderRadius: 20, fontFamily: 'monospace', fontWeight: 700,
+                                    background: `${RISK_COLOR[r.riskLevel]}22`, color: RISK_COLOR[r.riskLevel],
+                                    border: `1px solid ${RISK_COLOR[r.riskLevel]}44`, minWidth: 60, textAlign: 'center',
+                                }}>
+                                    {r.riskLevel.toUpperCase()}
+                                </span>
+                                <span style={{ fontSize: 11, color: '#64748b', flex: 1 }}>
+                                    {r.incidentClass.replace(/_/g, ' ')}
+                                </span>
+                                <span style={{ fontSize: 10, color: '#475569' }}>
+                                    {TREND_ICON[r.velocityTrend]} {r.count24h}× today
+                                </span>
+                                <div style={{ width: 80, height: 4, background: '#111827', borderRadius: 99 }}>
+                                    <div style={{
+                                        height: '100%', borderRadius: 99,
+                                        width: `${r.riskScore}%`,
+                                        background: RISK_COLOR[r.riskLevel],
+                                        transition: 'width 0.8s ease',
+                                    }} />
+                                </div>
+                                <span style={{ fontSize: 10, color: RISK_COLOR[r.riskLevel], fontFamily: 'monospace', width: 30 }}>
+                                    {r.riskScore}
+                                </span>
+                            </div>
+                        ))}
                     </div>
                 </div>
             )}

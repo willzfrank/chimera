@@ -5,10 +5,13 @@ import { AgentMessageBusService } from '../agents/core/agent-message-bus.service
 import { AgentFactory } from '../agents/core/agent-factory';
 import { ConsensusEngine } from '../agents/core/consensus-engine';
 import { TopologyMemoryService } from '../memory/topology-memory.service';
+import { LearningService } from '../memory/learning.service';
 import { MetaOrchestratorAgent } from '../agents/orchestrator/meta-orchestrator.agent';
-import { ConsensusResult, Incident } from '../agents/core/types';
+import { Incident } from '../agents/core/types';
+import { IncidentQueue } from './incident.queue';
 import { AnalyticsService } from 'src/analytics/analytics.service';
 import { SlackService } from '../notifications/slack.service';
+import { MetricWatcherService } from '../monitoring/metric-watcher.service';
 
 export class CreateIncidentDto {
     title: string;
@@ -29,9 +32,14 @@ export class IncidentService {
         private readonly factory: AgentFactory,
         private readonly consensus: ConsensusEngine,
         private readonly memory: TopologyMemoryService,
+        private readonly learning: LearningService,
         private readonly analytics: AnalyticsService,
         private readonly slack: SlackService,
-    ) { }
+        private readonly queue: IncidentQueue,
+        private readonly watcher: MetricWatcherService,
+    ) {
+        this.watcher.setIncidentHandler((dto) => this.handleIncident(dto));
+    }
 
     resolveCheckpoint(id: string, approved: boolean): void {
         const fn = this.checkpoints.get(id);
@@ -51,7 +59,7 @@ export class IncidentService {
         });
     }
 
-    async handleIncident(dto: CreateIncidentDto): Promise<ConsensusResult> {
+    async handleIncident(dto: CreateIncidentDto): Promise<void> {
         const incident: Incident = {
             id: uuidv4(),
             title: dto.title,
@@ -61,9 +69,13 @@ export class IncidentService {
             timestamp: Date.now(),
         };
         this.logger.log(`Incident: [${incident.severity}] ${incident.title}`);
-        const orchestrator = new MetaOrchestratorAgent(
-            this.qwen, this.bus, this.factory, this.consensus, this.memory, this.analytics, this.slack,
-        );
-        return orchestrator.processIncident(incident);
+        const priority = { P0: 4, P1: 3, P2: 2, P3: 1 }[dto.severity] ?? 2;
+
+        this.queue.enqueue(incident.id, priority, async () => {
+            const orchestrator = new MetaOrchestratorAgent(
+                this.qwen, this.bus, this.factory, this.consensus, this.memory, this.learning, this.analytics, this.slack,
+            );
+            await orchestrator.processIncident(incident);
+        });
     }
 }

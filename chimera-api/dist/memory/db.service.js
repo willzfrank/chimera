@@ -56,6 +56,22 @@ let DbService = DbService_1 = class DbService {
       ON topology_memories USING ivfflat (embedding vector_cosine_ops)
       WITH (lists = 100)
     `);
+        await this.pool.query(`
+      CREATE TABLE IF NOT EXISTS agent_learnings (
+        id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        incident_class TEXT NOT NULL,
+        pattern        TEXT NOT NULL,
+        evidence       TEXT,
+        confidence     FLOAT DEFAULT 0.8,
+        usage_count    INTEGER DEFAULT 1,
+        created_at     TIMESTAMPTZ DEFAULT NOW(),
+        UNIQUE(incident_class, pattern)
+      )
+    `);
+        await this.pool.query(`
+      CREATE INDEX IF NOT EXISTS learnings_class_idx
+      ON agent_learnings(incident_class, confidence DESC)
+    `);
         this.logger.log('pgvector ready');
     }
     async onModuleDestroy() {

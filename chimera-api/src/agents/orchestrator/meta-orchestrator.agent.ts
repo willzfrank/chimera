@@ -12,6 +12,7 @@ import {
 import { SpecialistAgent } from '../specialists/specialist.agent';
 import { AdversarialAgent } from '../adversarial/adversarial.agent';
 import { TopologyMemoryService } from '../../memory/topology-memory.service';
+import { LearningService } from '../../memory/learning.service';
 import { AnalyticsService } from '../../analytics/analytics.service';
 import { SlackService } from '../../notifications/slack.service';
 
@@ -38,6 +39,7 @@ export class MetaOrchestratorAgent extends BaseAgent {
         private readonly factory: AgentFactory,
         private readonly consensusEngine: ConsensusEngine,
         private readonly memory?: TopologyMemoryService,
+        private readonly learning?: LearningService,
         private readonly analytics?: AnalyticsService,
         private readonly slack?: SlackService,
     ) {
@@ -60,6 +62,22 @@ export class MetaOrchestratorAgent extends BaseAgent {
                 topology = recalled;
                 fromMemory = true;
                 this.logger.log(`Memory HIT: class=${topology.incidentClass} — skipping synthesis`);
+            }
+        }
+
+        if (topology && fromMemory && this.learning) {
+            const patterns = await this.learning.getPatterns(topology.incidentClass);
+            if (patterns.length > 0) {
+                const patternText = `\n\nLEARNED PATTERNS:\n${patterns.map((p, i) => `${i + 1}. ${p}`).join('\n')}`;
+                topology = {
+                    ...topology,
+                    agents: topology.agents.map(a =>
+                        a.role === 'specialist'
+                            ? { ...a, systemPrompt: a.systemPrompt + patternText }
+                            : a,
+                    ),
+                };
+                this.logger.log(`Injected ${patterns.length} learned patterns into recalled topology`);
             }
         }
 
@@ -143,8 +161,19 @@ export class MetaOrchestratorAgent extends BaseAgent {
             });
         }
 
-        // ── 5. Store to memory (if new topology, high confidence) ─────────────
+        // ── 5. Extract learnings + store to memory ────────────────────────────
         const resolutionMs = Date.now() - startTime;
+        if (this.learning && consensus.confidence > 0.75) {
+            const findings = Array.from(this.specialistResults.values()).map(r => r.content);
+            await this.learning.extractAndStore(
+                topology.incidentClass,
+                incident.description,
+                findings,
+                consensus.decision,
+                consensus.confidence,
+            ).catch(() => {});
+        }
+
         if (this.memory && !fromMemory && consensus.confidence > 0.7) {
             await this.memory.store(incident.description, topology, consensus.confidence, resolutionMs);
         }

@@ -1,13 +1,14 @@
 import { CreateIncidentDto, IncidentService } from './incident.service';
+import { IncidentQueue } from './incident.queue';
 export declare class IncidentController {
     private readonly incidentService;
-    constructor(incidentService: IncidentService);
+    private readonly queue;
+    constructor(incidentService: IncidentService, queue: IncidentQueue);
     submit(dto: CreateIncidentDto): Promise<{
         status: string;
     }>;
     submitSync(dto: CreateIncidentDto): Promise<{
         status: string;
-        result: import("../agents/core/types").ConsensusResult;
     }>;
     resolveCheckpoint(id: string, body: {
         approved: boolean;
@@ -20,6 +21,11 @@ export declare class IncidentController {
         status: string;
         service: string;
         timestamp: string;
+        queue: {
+            running: number;
+            queued: number;
+            maxConcurrent: number;
+        };
         alibaba_cloud: boolean;
     };
 }

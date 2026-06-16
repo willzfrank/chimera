@@ -5,6 +5,7 @@ import {
     OnGatewayDisconnect,
     SubscribeMessage,
     MessageBody,
+    ConnectedSocket,
 } from '@nestjs/websockets';
 import { Logger, OnModuleInit } from '@nestjs/common';
 import { Server, Socket } from 'socket.io';
@@ -33,7 +34,12 @@ export class EventsGateway implements OnModuleInit, OnGatewayConnection, OnGatew
     }
 
     @SubscribeMessage('get_history')
-    async getHistory(@MessageBody() data: { fromId?: string }) {
-        return this.bus.getEventHistory(data?.fromId ?? '0-0');
+    async getHistory(
+        @MessageBody() data: { fromId?: string },
+        @ConnectedSocket() client: Socket,  // ADD THIS
+    ) {
+        const events = await this.bus.getEventHistory(data?.fromId ?? '0-0');
+        // Return via callback (not broadcast)
+        return events;
     }
 }
